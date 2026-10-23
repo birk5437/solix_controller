@@ -51,6 +51,10 @@ actor MockBackend: TOUBackend {
         }
     }
     func sendBackupSOC(_ device: SOLIXDevice, soc: Int) async throws { sent.append("soc:\(soc)"); telemetry.backupSOC = soc }
+    func sendBatteryOnly(_ device: SOLIXDevice, enabled: Bool) async throws {
+        sent.append("batteryonly:\(enabled)")
+        if deviceObeys { telemetry.batteryOnlySwitch = enabled ? 1 : 0 }
+    }
     func requestTelemetry(_ device: SOLIXDevice) async throws {}
     func latestTelemetry(serial: String) async -> BatteryTelemetry? { telemetry }
     func awaitTelemetry(serial: String, since: Date, timeout: TimeInterval, where predicate: @Sendable (BatteryTelemetry) -> Bool) async -> BatteryTelemetry? {
@@ -390,5 +394,82 @@ struct DiscoveryTests {
         _ = try await b.signIn(email: "a@b.c", password: "x", country: "US")
         #expect(Set(await http.requests.compactMap { $0.url?.host }) == ["ankerpower-api.anker.com"])
         #expect(await b.regionNote == nil)
+    }
+}
+
+@Suite("Battery-only (AC input disabled)")
+struct BatteryOnlyTests {
+    static func svc(_ b: MockBackend) -> TOUService { TOUService(backend: b, verifyTimeout: 0.1) }
+    static let plan = PlanTests.good
+
+    @Test func decodesFlagFromA4Byte49() throws {
+        func frame(_ byte: UInt8) throws -> BatteryTelemetry {
+            var a4 = [UInt8](repeating: 0, count: 0x32); a4[0x31] = byte
+            let m = HexMessage(msgType: 0x0421, isResponse: true, fields: [HexField(name: 0xa4, type: 4, value: Data(a4))])
+            return try #require(TelemetryDecoder.telemetry(partNumber: "A1783", message: try HexMessage.parse(m.encode())))
+        }
+        #expect(try frame(0x00).batteryOnlySwitch == 0)
+        #expect(try frame(0x02).batteryOnlySwitch == 0, "outage-alert bit (0x02) alone is not battery-only")
+        #expect(try frame(0x04).batteryOnlySwitch == 1)
+        #expect(try frame(0x06).batteryOnlySwitch == 1)
+    }
+
+    @Test func commandFrameMatchesReferenceLayout() throws {
+        let m = SOLIXCommand.setBatteryOnly(false, now: Date(timeIntervalSince1970: 1_700_000_000))
+        let p = try HexMessage.parse(m.encode())
+        #expect(p.msgType == 0x0101)
+        #expect(p.field(0xab)?.type == 0x02 && p.field(0xab)?.value == Data([0, 0]))
+        #expect(try HexMessage.parse(SOLIXCommand.setBatteryOnly(true).encode()).field(0xab)?.value == Data([1, 0]))
+        #expect(p.fields.map(\.name) == [0xa1, 0xab, 0xfd], "fields sorted by name")
+    }
+
+    @Test func diagnosticsExplainBatteryOnlyAndInferWithoutPlugStatus() async {
+        let b = MockBackend()
+        await b.configure { $0.telemetry.batteryOnlySwitch = 1 }
+        let on = await Self.svc(b).diagnose(device: c2000, plan: nil).first { $0.title.hasPrefix("6.") }!
+        #expect(on.status == .fail && on.detail.contains("Battery-Only") && on.detail.contains("Anker app"))
+        await b.configure { $0.telemetry.batteryOnlySwitch = nil; $0.telemetry.acInputW = 450 }
+        let inferred = await Self.svc(b).diagnose(device: c2000, plan: nil).first { $0.title.hasPrefix("6.") }!
+        #expect(inferred.status == .pass && inferred.detail.contains("inferred"))
+        await b.configure { $0.telemetry.acInputW = nil }
+        #expect(await Self.svc(b).diagnose(device: c2000, plan: nil).first { $0.title.hasPrefix("6.") }!.status == .unknown)
+    }
+
+    @Test func touActivationIsStoppedWhileBatteryOnlyIsOn() async {
+        let b = MockBackend()
+        await b.configure { $0.storedPlan = Self.plan; $0.telemetry.batteryOnlySwitch = 1; $0.telemetry.backupSOC = 6 }
+        let r = await Self.svc(b).setMode(.timeOfUse, on: c2000, plan: Self.plan, readOnly: false) { _ in Issue.record("must not prompt"); return true }
+        #expect(!r.success && r.summary.contains("Battery-Only"))
+        #expect(await b.sent.isEmpty)
+        // Disabling TOU is still allowed.
+        await b.configure { $0.telemetry.usageMode = 1 }
+        let off = await Self.svc(b).setMode(.standard, on: c2000, plan: nil, readOnly: false) { _ in true }
+        #expect(off.success)
+    }
+
+    @Test func allowACInputIsConfirmedSentOnceAndVerified() async {
+        let b = MockBackend()
+        await b.configure { $0.telemetry.batteryOnlySwitch = 1 }
+        let r = await Self.svc(b).allowACInput(on: c2000, readOnly: false) { s in s.text.contains("ON → OFF") }
+        #expect(r.success && r.summary.contains("verified"))
+        #expect(await b.sent == ["batteryonly:false"])
+    }
+
+    @Test func allowACInputNotVerifiedIsNotSuccessAndRespectsReadOnly() async {
+        let b = MockBackend()
+        await b.configure { $0.telemetry.batteryOnlySwitch = 1; $0.deviceObeys = false }
+        let r = await Self.svc(b).allowACInput(on: c2000, readOnly: false) { _ in true }
+        #expect(!r.success)
+        let ro = await Self.svc(b).allowACInput(on: c2000, readOnly: true) { _ in true }
+        #expect(!ro.success && ro.summary.contains("Read-only"))
+        #expect(await b.sent == ["batteryonly:false"], "read-only run sent nothing more")
+    }
+
+    @Test func otherModelsNeverGetTheCommand() async {
+        let b = MockBackend()
+        let c1000 = SOLIXDevice(serial: "x", partNumber: "A1763", name: "C1000", isOwner: true)
+        let r = await Self.svc(b).allowACInput(on: c1000, readOnly: false) { _ in true }
+        #expect(!r.success && r.summary.contains("Not supported"))
+        #expect(await b.sent.isEmpty)
     }
 }

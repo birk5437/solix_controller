@@ -12,6 +12,7 @@ struct DeviceSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            acInputCard
             Card(title: "Connection preference", systemImage: "arrow.triangle.branch") {
                 Picker("Preferred transport", selection: Binding(get: { device.preferredTransport }, set: { state.setPreferredTransport($0, serial: device.serial) })) {
                     Text("Automatic (Local Wi-Fi → Bluetooth → Cloud)").tag(TransportKind?.none)
@@ -36,6 +37,7 @@ struct DeviceSettingsView: View {
             }
             .onAppear { reserve = Double(t?.backupSOC ?? range.lowerBound) }
             Card(title: "Reported by the device (read-only)", systemImage: "eye") {
+                LabeledContent("Battery-Only Power") { Text(t?.batteryOnlySwitch.map { $0 == 1 ? "ON (AC input disabled)" : "off" } ?? "not reported") }
                 LabeledContent("Minimum SOC") { Text(t?.minSOC.map { "\($0)%" } ?? "not reported") }
                 LabeledContent("Maximum SOC") { Text(t?.maxSOC.map { "\($0)%" } ?? "not reported") }
                 LabeledContent("AC input") { Text(acText) }
@@ -50,7 +52,45 @@ struct DeviceSettingsView: View {
     }
 
     var acText: String {
-        switch t?.acPlugStatus { case 0: "Disconnected"; case 1: "Connected"; case 2: "Disabled (battery-only)"; default: "not reported" }
+        switch t?.acPlugStatus {
+        case 0: return "Disconnected"
+        case 1: return "Connected"
+        case 2: return "Disabled (battery-only)"
+        default:
+            if t?.batteryOnlySwitch == 1 { return "Disabled (Battery-Only is ON)" }
+            if let w = t?.acInputW { return w > 0 ? "Power flowing: \(Int(w)) W (plug status not reported)" : "No power flowing (plug status not reported)" }
+            return "not reported"
+        }
+    }
+
+    var acInputCard: some View {
+        let on = t?.batteryOnlySwitch == 1
+        return Card(title: "AC input", systemImage: "powerplug") {
+            LabeledContent("Status") { Text(acText).foregroundStyle(on ? .red : .primary) }
+            LabeledContent("Battery-Only Power") { Text(t?.batteryOnlySwitch.map { $0 == 1 ? "ON" : "off" } ?? "not reported") }
+            LabeledContent("AC power in") { Text(t?.acInputW.map { "\(Int($0)) W" } ?? "not reported") }
+            if on {
+                Label("Battery-Only Power is ON. The battery has disabled its AC input, so it is not charging from mains and TOU will not run — even if mains power is plugged in and the Anker app shows an AC connection.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
+            }
+            if device.profile?.supportsBatteryOnlyControl == true {
+                HStack {
+                    Group {
+                        if on {
+                            Button("Allow AC Input…") { Task { await state.allowACInput(serial: device.serial) } }.buttonStyle(.borderedProminent)
+                        } else {
+                            Button("Allow AC Input…") { Task { await state.allowACInput(serial: device.serial) } }.buttonStyle(.bordered)
+                        }
+                    }
+                    .disabled(!on || state.busy.contains(device.serial) || !state.mqttConnected)
+                    if t?.batteryOnlySwitch == nil { Text("Waiting for the device to report this setting.").font(.caption).foregroundStyle(.secondary) }
+                }
+                Text("Turns Battery-Only Power off (documented command, message group 0101 field ab). The result is only reported as successful once the device's own telemetry shows it is off. Per the reference, the flag also clears when mains power is unplugged or the unit restarts.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Unsupported(text: "No documented Battery-Only switch for this model.")
+            }
+        }
     }
 }
 

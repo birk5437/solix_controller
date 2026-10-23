@@ -77,6 +77,8 @@ public struct ModelProfile: Sendable, Hashable {
     public let capabilities: DeviceCapabilities
     /// Usage modes the *reference implementations* can set for this model over MQTT.
     public let settableUsageModes: [UsageMode]
+    /// The documented Battery-Only ("AC input disabled") switch exists and is described for this model.
+    public let supportsBatteryOnlyControl: Bool
     /// BLE advertised product_type (hex) when SolixBLE maps it.
     public let bleProductType: String?
     /// Why TOU is or is not available — shown verbatim in the UI.
@@ -90,7 +92,7 @@ public enum ModelRegistry {
 
     static func pps(
         _ pn: String, _ name: String, _ wh: Int, ble: String?, tou: Bool,
-        modes: [UsageMode], note: String, extra: [String]
+        modes: [UsageMode], note: String, extra: [String], batteryOnly: Bool = false
     ) -> ModelProfile {
         ModelProfile(
             partNumber: pn, marketingName: name, capacityWh: wh,
@@ -104,7 +106,7 @@ public enum ModelRegistry {
                 supportsTOU: tou, supportsTOUScheduling: tou,
                 supportsGridCharging: false,  // AC charge limit is mapped, but TOU-driven grid charging is device-side
                 supportsReserveSOC: tou),
-            settableUsageModes: modes, bleProductType: ble, touNote: note,
+            settableUsageModes: modes, supportsBatteryOnlyControl: batteryOnly, bleProductType: ble, touNote: note,
             sources: [sourceAPI + " src/anker_solix_api/mqttmap.py"] + extra)
     }
 
@@ -115,7 +117,8 @@ public enum ModelRegistry {
                 extra: [sourceBLE + " SolixBLE/factory.py (b118 → C1000G2)"]),
             pps("A1783", "SOLIX C2000 Gen 2", 2048, ble: nil, tou: true, modes: [.standard, .timeOfUse],
                 note: "TOU plan is stored via cloud attribute pps_use_time; the mode is switched with MQTT command group 0090 (field a2). Both are described for A1783.",
-                extra: ["anker-solix-api mqttmap.py A1783 group 0090 / 0421 field d9", "anker-solix-api schedule.py set_pps_use_time"]),
+                extra: ["anker-solix-api mqttmap.py A1783 group 0090 / 0421 field d9", "anker-solix-api schedule.py set_pps_use_time",
+                        "mqttmap.py A1783 a4[0x31] battery_only_switch; group 0101 field ab"], batteryOnly: true),
             pps("A1790P", "SOLIX F3800 Plus", 3840, ble: "b112", tou: false, modes: [],
                 note: "The reference MQTT map for A1790P contains no usage-mode / TOU command group. The cloud pps_use_time attribute may exist but the mode switch is undocumented, so TOU control is unsupported here.",
                 extra: [sourceBLE + " SolixBLE/factory.py (b112 → F3800)"]),

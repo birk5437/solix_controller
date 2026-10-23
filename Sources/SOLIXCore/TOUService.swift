@@ -9,6 +9,7 @@ public protocol TOUBackend: Sendable {
     func pushCloudPlan(serial: String, plan: TOUPlan) async throws
     func sendUsageMode(_ device: SOLIXDevice, mode: UsageMode) async throws
     func sendBackupSOC(_ device: SOLIXDevice, soc: Int) async throws
+    func sendBatteryOnly(_ device: SOLIXDevice, enabled: Bool) async throws
     func requestTelemetry(_ device: SOLIXDevice) async throws
     func latestTelemetry(serial: String) async -> BatteryTelemetry?
     /// Wait until `predicate` holds for a fresh telemetry frame (frames older than `since` are ignored).
@@ -63,7 +64,10 @@ public struct ChangeSummary: Sendable {
     public var previousReserve: Int?
     /// Plan/reserve change only; the operating mode is left untouched.
     public var modeUnchanged = false
+    /// When set, replaces the generated text (used for non-plan changes).
+    public var extraText: String?
     public var text: String {
+        if let e = extraText { return e }
         var l = ["Device: \(device.name) (\(device.partNumber))"]
         if !modeUnchanged {
             l.append("Operating mode: \(previousMode.flatMap(UsageMode.init(rawValue:))?.label ?? "unknown") → \(targetMode.label)")
@@ -154,13 +158,21 @@ public struct TOUService: Sendable {
             out.append(.init(title: "5. No conflicting operating mode", status: .unknown, detail: "Device mode not received yet (needs MQTT telemetry)."))
         }
 
-        // 6. grid charging availability
-        if let plug = tel?.acPlugStatus {
-            let text = ["AC input disconnected", "AC input connected", "AC input disabled (battery-only power on)"]
+        // 6. AC input / grid charging
+        if tel?.batteryOnlySwitch == 1 || tel?.acPlugStatus == 2 {
+            out.append(.init(title: "6. Grid charging available", status: .fail,
+                             detail: "Battery-Only Power is ON: the battery has switched its AC input off, even if mains power is plugged in and the Anker app shows an AC connection. The reference notes “TOU does not run while set”. Use Settings → “Allow AC input” to turn it off (it also clears on a restart or when mains is unplugged)."))
+        } else if let plug = tel?.acPlugStatus {
+            let text = ["AC input disconnected", "AC input connected and accepted"]
             out.append(.init(title: "6. Grid charging available", status: plug == 1 ? .pass : .warn,
                              detail: plug < text.count ? text[plug] : "AC plug status \(plug)"))
+        } else if let w = tel?.acInputW {
+            out.append(.init(title: "6. Grid charging available", status: w > 0 ? .pass : .warn,
+                             detail: w > 0 ? "AC plug status not reported, but \(Int(w)) W is flowing in (inferred)."
+                                : "AC plug status not reported and no AC power is flowing now (it may simply be full). Battery-Only: \(tel?.batteryOnlySwitch.map { $0 == 0 ? "off" : "ON" } ?? "not reported")."))
         } else {
-            out.append(.init(title: "6. Grid charging available", status: .unknown, detail: "AC input status not received."))
+            out.append(.init(title: "6. Grid charging available", status: .unknown,
+                             detail: "No AC telemetry received yet. Wait for the first live frame, then re-run."))
         }
 
         // 7. reserve settings
@@ -243,6 +255,11 @@ public struct TOUService: Sendable {
                 return fail("The plan is invalid; nothing was sent.")
             }
             r.add("Validate", true, "Plan is consistent")
+        }
+        if mode == .timeOfUse, before?.batteryOnlySwitch == 1 {
+            r.add("AC input", false, "Battery-Only Power is ON")
+            r.problems.append(.init(title: "Battery-Only", status: .fail, detail: "The battery reports Battery-Only Power ON (AC input disabled); TOU does not run in this state. Turn it off under Settings → “Allow AC input”, then activate TOU."))
+            return fail("Battery-Only Power is on, so TOU cannot run. Nothing was sent.")
         }
         if readOnly { r.add("Read-only mode", false, "Changes disabled"); return fail("Read-only mode is on; nothing was sent.") }
 
@@ -399,6 +416,34 @@ public struct TOUService: Sendable {
             r.success = true; r.add("Verify on device", true, "Device reports \(soc)%"); r.summary = "Reserve is \(soc)% (verified from device telemetry)."
         } else { r.add("Verify on device", false, "No confirmation"); r.summary = "The device did not confirm the new reserve." }
         await audit(device.serial, "Reserve \(soc)%: \(r.success ? "VERIFIED" : "NOT verified")")
+        return r
+    }
+
+    /// Turn Battery-Only Power OFF so the battery accepts AC input again; verified from the device's own flag.
+    public func allowACInput(on device: SOLIXDevice, readOnly: Bool,
+                             confirm: @Sendable (ChangeSummary) async -> Bool) async -> TOUActivationReport {
+        var r = TOUActivationReport(requestedMode: .standard)
+        guard device.profile?.supportsBatteryOnlyControl == true else {
+            r.add("Support check", false, "No documented battery-only switch for \(device.partNumber)"); r.summary = "Not supported for this model."; return r
+        }
+        guard await backend.mqttConnected else { r.add("MQTT", false, "Not connected"); r.summary = "The command channel is not connected."; return r }
+        let before = await backend.latestTelemetry(serial: device.serial)
+        if before?.batteryOnlySwitch == 0 { r.add("Read state", true, "Battery-Only is already off"); r.success = true; r.summary = "AC input is already accepted."; return r }
+        r.add("Read state", true, before?.batteryOnlySwitch.map { $0 == 1 ? "Battery-Only is ON" : "off" } ?? "not reported yet")
+        if readOnly { r.add("Read-only mode", false, "Changes disabled"); r.summary = "Read-only mode is on; nothing was sent."; return r }
+        let text = "Device: \(device.name) (\(device.partNumber))\nBattery-Only Power: ON → OFF (the battery will accept AC input and charge from mains again)"
+        var summary = ChangeSummary(device: device, targetMode: .standard, previousMode: before?.usageMode, newPlan: nil, previousPlan: nil, newReserve: nil, previousReserve: nil)
+        summary.modeUnchanged = true; summary.extraText = text
+        guard await confirm(summary) else { r.add("Confirmation", false, "Declined"); r.summary = "Cancelled by user; nothing was sent."; return r }
+        await audit(device.serial, "Allow AC input confirmed (battery-only off)")
+        let t0 = Date()
+        do { try await backend.sendBatteryOnly(device, enabled: false); r.add("Send command", true, "Published battery-only OFF") }
+        catch { r.add("Send command", false, "\(error)"); r.summary = "\(error)"; return r }
+        try? await backend.requestTelemetry(device)
+        if await backend.awaitTelemetry(serial: device.serial, since: t0, timeout: verifyTimeout, where: { $0.batteryOnlySwitch == 0 }) != nil {
+            r.success = true; r.add("Verify on device", true, "Device reports Battery-Only OFF"); r.summary = "AC input is accepted again (verified from device telemetry)."
+        } else { r.add("Verify on device", false, "No confirmation"); r.summary = "The device did not confirm. It may need to be power-cycled, or the flag is reported elsewhere (see Protocol Capture)." }
+        await audit(device.serial, "Allow AC input: \(r.success ? "VERIFIED" : "NOT verified")")
         return r
     }
 }

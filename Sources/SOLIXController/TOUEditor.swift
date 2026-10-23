@@ -31,6 +31,11 @@ struct TOUEditor: View {
                         .font(.callout).foregroundStyle(.secondary)
                 }
             }
+            if tel?.batteryOnlySwitch == 1 {
+                Card(title: "AC input is disabled", systemImage: "exclamationmark.triangle.fill") {
+                    Text("The battery reports Battery-Only Power ON, so TOU will not run and activation is blocked. Go to Settings → AC input → Allow AC Input.").font(.callout)
+                }
+            }
             stageCard
             Card(title: "24-hour schedule", systemImage: "calendar.day.timeline.leading") {
                 Timeline(plan: plan, currentHour: Calendar.current.component(.hour, from: Date()))

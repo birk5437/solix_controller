@@ -49,6 +49,7 @@ struct DeviceDashboard: View {
                 Card(title: "Status", systemImage: "info.circle") {
                     LabeledContent("Operating mode") { Text(modeText) }
                     LabeledContent("Estimated runtime") { Text(runtimeText) }
+                    LabeledContent("AC input") { Text(acInputText).foregroundStyle(t?.batteryOnlySwitch == 1 ? .red : .primary) }
                     LabeledContent("Temperature") { Text(t?.temperatureC.map { String(format: "%.0f °C", $0) } ?? "–") }
                     LabeledContent("Firmware") { Text(device.firmware ?? t?.firmware ?? "not reported") }
                     LabeledContent("Connection") { Text(device.activeTransports.isEmpty ? "None" : device.activeTransports.map(\.label).joined(separator: ", ")) }
@@ -67,6 +68,15 @@ struct DeviceDashboard: View {
     var recent: [HistoryPoint] {
         let cut = Date().addingTimeInterval(-6 * 3600)
         return (state.history[device.serial] ?? []).filter { $0.time >= cut }
+    }
+
+    var acInputText: String {
+        if t?.batteryOnlySwitch == 1 || t?.acPlugStatus == 2 { return "Disabled — Battery-Only ON" }
+        switch t?.acPlugStatus {
+        case 1: return "Connected"
+        case 0: return "Disconnected"
+        default: return t?.acInputW.map { $0 > 0 ? "\(Int($0)) W flowing" : "none flowing" } ?? "not reported"
+        }
     }
 
     var modeText: String {

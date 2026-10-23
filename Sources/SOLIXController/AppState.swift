@@ -377,6 +377,13 @@ final class AppState {
         await record(serial, r)
     }
 
+    func allowACInput(serial: String) async {
+        guard let d = device(serial), !busy.contains(serial) else { return }
+        busy.insert(serial); defer { busy.remove(serial) }
+        let r = await tou.allowACInput(on: d, readOnly: readOnly) { [self] s in await confirm(s) }
+        await record(serial, r)
+    }
+
     func runDiagnostics(serial: String) async {
         guard let d = device(serial) else { return }
         diagnostics[serial] = await tou.diagnose(device: d, plan: editedPlans[serial])

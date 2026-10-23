@@ -146,6 +146,16 @@ public enum SOLIXCommand {
         ])
     }
 
+    /// AC command group 0101, field ab (2-byte LE): Battery-Only Power. 0 = off (AC input accepted), 1 = on (AC input disabled).
+    /// Documented for A1783 (mqttcmdmap.CMD_BATTERY_ONLY_SWITCH_V2). Turning it on also switches off Ultrafast Charge.
+    public static func setBatteryOnly(_ on: Bool, now: Date = Date()) -> HexMessage {
+        HexMessage(msgType: 0x0101, fields: [
+            .raw(0xa1, [0x22]),
+            HexField(name: 0xab, type: HexFieldType.sile.rawValue, value: Data([on ? 1 : 0, 0])),
+            msTimestamp(now),
+        ])
+    }
+
     static func msTimestamp(_ d: Date) -> HexField { .str(0xfd, String(Int(d.timeIntervalSince1970 * 1000))) }
 
     public enum CommandError: Error, CustomStringConvertible {
@@ -254,6 +264,10 @@ public enum TelemetryDecoder {
         if t.acInputW != nil || t.dcInputW != nil { t.inputPowerW = (t.acInputW ?? 0) + (t.dcInputW ?? 0) }
         if let c = v["bat_charge_power"], t.inputPowerW == nil { t.inputPowerW = c }
 
+        if partNumber == "A1783", let a4 = message.field(0xa4), a4.value.count > 0x31 {
+            // a4[0x31] bits 0x0C = battery_only_switch (mqttmap.py): non-zero ⇒ AC input disabled; TOU does not run.
+            t.batteryOnlySwitch = (a4.value[a4.value.startIndex + 0x31] & 0x0C) != 0 ? 1 : 0
+        }
         if partNumber == "A1763", let d9 = message.field(0xd9), d9.value.count >= 5 {
             // SolixBLE c1000g2: d9[4:5] = max SOC, d9[5:6] = min SOC (type byte counted) → value offsets 3 and 4.
             let b = [UInt8](d9.value)

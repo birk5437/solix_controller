@@ -196,6 +196,13 @@ public actor CloudBackend: TOUBackend, CloudStatusProviding {
         try await publish(device, try SOLIXCommand.setBackupSOC(soc), note: "set backup SOC → \(soc)%")
     }
 
+    public func sendBatteryOnly(_ device: SOLIXDevice, enabled: Bool) async throws {
+        guard device.profile?.supportsBatteryOnlyControl == true else {
+            throw BackendError.unsupportedCommand("battery-only switch for \(device.partNumber)")
+        }
+        try await publish(device, SOLIXCommand.setBatteryOnly(enabled), note: "battery-only → \(enabled ? "on" : "off")")
+    }
+
     public func requestTelemetry(_ device: SOLIXDevice) async throws {
         // Realtime trigger (0057) is mapped for every supported PPS model.
         try await publish(device, SOLIXCommand.realtimeTrigger(timeout: 60), note: "realtime trigger")
