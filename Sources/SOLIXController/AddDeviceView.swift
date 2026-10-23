@@ -98,6 +98,11 @@ struct BluetoothDiscovery: View {
                             if let a = d.advertisement { Text("MAC \(a.mac) · encrypted negotiation \(a.acceptsEncryptedNegotiation ? "supported" : "n/a")").font(.caption2).foregroundStyle(.tertiary) }
                         }
                         Spacer()
+                        if state.isAdded(d) {
+                            Label("Added", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
+                        } else {
+                            Button("Add to My Devices") { state.addBluetoothDevice(d) }.buttonStyle(.borderedProminent)
+                        }
                         Toggle("Auto-reconnect", isOn: Binding(get: { bt.trustedIdentifiers.contains(d.id) }, set: { state.trustBLE(d.id, $0) })).toggleStyle(.checkbox)
                         Button(d.connected ? "Disconnect" : d.connecting ? "Connecting…" : "Connect") { d.connected ? bt.disconnect(d.id) : bt.connect(d.id) }
                             .disabled(d.connecting)

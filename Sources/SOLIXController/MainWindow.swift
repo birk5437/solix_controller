@@ -88,6 +88,7 @@ struct DeviceSidebar: View {
             Section("Devices") {
                 ForEach(state.devices) { d in
                     DeviceRow(device: d, telemetry: state.telemetry[d.serial]).tag(SidebarSelection.device(d.serial))
+                        .contextMenu { Button("Remove Device", role: .destructive) { state.removeDevice(d.serial) } }
                 }
                 if state.devices.isEmpty {
                     Text("No devices").foregroundStyle(.secondary)

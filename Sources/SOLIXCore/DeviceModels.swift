@@ -147,6 +147,10 @@ public struct SOLIXDevice: Identifiable, Codable, Hashable, Sendable {
     public var status: ConnectionStatus = .unknown
     public var activeTransports: [TransportKind] = []
     public var preferredTransport: TransportKind?  // user override
+    /// CoreBluetooth peripheral identifier when this device was added (or linked) over Bluetooth.
+    public var bleIdentifier: UUID?
+    /// Bluetooth-only entries have no Anker serial; they use a synthetic `ble-<uuid>` id.
+    public var isBluetoothOnly: Bool { serial.hasPrefix("ble-") }
 
     public var profile: ModelProfile? { ModelRegistry.profile(for: partNumber) }
     public var capabilities: DeviceCapabilities { profile?.capabilities ?? .none }

@@ -102,6 +102,12 @@ final class AppState {
         await loadHistory()
         await refreshAudit()
         startAutomation()
+        Task { [weak self] in
+            while !Task.isCancelled {
+                self?.syncBluetoothStatus()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
         consumeTask = Task { [weak self] in
             guard let self else { return }
             for await u in self.backend.updates { await self.apply(u) }
@@ -118,6 +124,65 @@ final class AppState {
     func persistRules() {
         guard let data = try? JSONEncoder().encode(rules), let s = String(data: data, encoding: .utf8) else { return }
         Task { try? await database.setValue(s, for: "rules") }
+    }
+
+    // MARK: Bluetooth devices in the main list
+
+    func isAdded(_ ble: DiscoveredBLEDevice) -> Bool { devices.contains { $0.bleIdentifier == ble.id } }
+
+    /// Best-effort part number from the advertisement; falls back to the advertised SKU, then "UNKNOWN".
+    func partNumber(for ble: DiscoveredBLEDevice) -> String {
+        if let p = ble.modelGuess { return p.partNumber }
+        if let sku = ble.advertisement?.sku.uppercased(), !sku.isEmpty { return sku.hasPrefix("A") ? sku : "A" + sku }
+        return "UNKNOWN"
+    }
+
+    /// Add a discovered Bluetooth device to the main list. If exactly one cloud device of the same model already
+    /// exists, the Bluetooth link is attached to it instead of creating a duplicate.
+    func addBluetoothDevice(_ ble: DiscoveredBLEDevice) {
+        guard !isAdded(ble) else { return }
+        let pn = partNumber(for: ble)
+        let sameModelCloud = devices.indices.filter { devices[$0].partNumber == pn && !devices[$0].isBluetoothOnly && devices[$0].bleIdentifier == nil }
+        let serial: String
+        if sameModelCloud.count == 1, let i = sameModelCloud.first {
+            devices[i].bleIdentifier = ble.id; serial = devices[i].serial
+        } else {
+            var d = SOLIXDevice(serial: "ble-\(ble.id.uuidString)", partNumber: pn, name: ble.name, isOwner: true)
+            d.bleIdentifier = ble.id
+            d.status = ble.connected ? .online : .offline
+            devices.append(d); serial = d.serial
+        }
+        trustBLE(ble.id, true)     // reconnect automatically on later launches
+        if !ble.connected { bluetooth.connect(ble.id) }
+        persistDevices()
+        syncBluetoothStatus()
+        selection = .device(serial)
+        Task { try? await database.appendAudit(serial: serial, category: "device", message: "Added over Bluetooth (\(pn))") }
+    }
+
+    func removeDevice(_ serial: String) {
+        guard let d = device(serial) else { return }
+        if let id = d.bleIdentifier { bluetooth.disconnect(id); trustBLE(id, false) }
+        devices.removeAll { $0.serial == serial }
+        telemetry[serial] = nil
+        if selection == .device(serial) { selection = devices.first.map { .device($0.serial) } }
+        persistDevices()
+    }
+
+    /// Reflect live Bluetooth connection state on devices that have a Bluetooth link.
+    func syncBluetoothStatus() {
+        var changed = false
+        for i in devices.indices {
+            guard let id = devices[i].bleIdentifier, let b = bluetooth.devices[id] else { continue }
+            var t = devices[i].activeTransports.filter { $0 != .bluetooth }
+            if b.connected { t.append(.bluetooth) }
+            if t != devices[i].activeTransports { devices[i].activeTransports = t; changed = true }
+            if devices[i].isBluetoothOnly {
+                let s: ConnectionStatus = b.connected ? .online : (b.connecting ? .connecting : .offline)
+                if devices[i].status != s { devices[i].status = s; changed = true }
+            }
+        }
+        _ = changed
     }
 
     func trustBLE(_ id: UUID, _ trusted: Bool) {
@@ -149,20 +214,21 @@ final class AppState {
                 }
             }
             // Only models with a verified telemetry layout are monitored over MQTT.
-            let monitorable = devices.filter { ModelRegistry.profile(for: $0.partNumber) != nil }
-            for i in devices.indices { devices[i].status = .connecting }
+            let monitorable = devices.filter { ModelRegistry.profile(for: $0.partNumber) != nil && !$0.isBluetoothOnly }
+            for i in devices.indices where !devices[i].isBluetoothOnly { devices[i].status = .connecting }
             persistDevices()
             if selection == nil, let f = devices.first { selection = .device(f.serial) }
             do {
                 try await backend.startMonitoring(monitorable)
                 mqttConnected = true
-                for i in devices.indices where ModelRegistry.profile(for: devices[i].partNumber) != nil {
-                    devices[i].status = .online; devices[i].activeTransports = [.cloud]
+                for i in devices.indices where ModelRegistry.profile(for: devices[i].partNumber) != nil && !devices[i].isBluetoothOnly {
+                    devices[i].status = .online
+                    if !devices[i].activeTransports.contains(.cloud) { devices[i].activeTransports.append(.cloud) }
                 }
-                for i in devices.indices where ModelRegistry.profile(for: devices[i].partNumber) == nil { devices[i].status = .unknown }
+                for i in devices.indices where ModelRegistry.profile(for: devices[i].partNumber) == nil && !devices[i].isBluetoothOnly { devices[i].status = .unknown }
             } catch {
                 mqttConnected = false
-                for i in devices.indices { devices[i].status = .offline }
+                for i in devices.indices where !devices[i].isBluetoothOnly { devices[i].status = .offline }
                 signInError = "Signed in, but the live-data channel (MQTT) failed: \(error)"
             }
             persistDevices()
@@ -178,7 +244,9 @@ final class AppState {
         await backend.signOut()
         cloudSignedIn = false; mqttConnected = false
         keychain.delete(account: email)
-        for i in devices.indices { devices[i].status = .offline; devices[i].activeTransports = [] }
+        for i in devices.indices where !devices[i].isBluetoothOnly {
+            devices[i].status = .offline; devices[i].activeTransports.removeAll { $0 == .cloud }
+        }
     }
 
     // MARK: Telemetry

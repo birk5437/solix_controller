@@ -80,6 +80,9 @@ struct DeviceDashboard: View {
     }
 
     var waitingText: String {
+        if device.isBluetoothOnly {
+            return "This device was added over Bluetooth. It is connected for identification only: live readings over Bluetooth need an encrypted session that this build does not implement yet. Sign in to the Anker cloud (Add Device → Anker Account) and the same model will receive live data via MQTT."
+        }
         if !state.cloudSignedIn { return "Sign in to the Anker cloud (Add Device → Anker Account). Live data for \(device.partNumber) arrives over Anker's MQTT service; Bluetooth telemetry needs an encrypted session that this build does not implement yet." }
         if !state.mqttConnected { return "Signed in, but the MQTT live-data channel is not connected. See Connections & Logs." }
         return "Connected. The battery publishes real-time data only after a trigger, which is re-sent every 50 seconds. It can take up to a minute for the first frame."

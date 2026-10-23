@@ -117,6 +117,11 @@ public final class BluetoothService: NSObject {
         for p in central.retrievePeripherals(withIdentifiers: Array(trustedIdentifiers)) {
             peripherals[p.identifier] = p
             wantConnected.insert(p.identifier)
+            if devices[p.identifier] == nil {
+                devices[p.identifier] = DiscoveredBLEDevice(id: p.identifier, name: p.name ?? "SOLIX device", rssi: 0,
+                                                            advertisement: nil, serviceUUIDs: [], lastSeen: Date())
+            }
+            devices[p.identifier]?.connecting = p.state == .disconnected
             if p.state == .disconnected { central.connect(p, options: nil); note("Reconnecting to \(p.name ?? p.identifier.uuidString)") }
         }
     }
