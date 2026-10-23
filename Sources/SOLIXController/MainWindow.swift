@@ -99,6 +99,13 @@ struct DeviceSidebar: View {
                 Label("Connections & Logs", systemImage: "stethoscope").tag(SidebarSelection.appDiagnostics)
             }
         }
+        .safeAreaInset(edge: .top) {
+            if state.bluetooth.availability == .unauthorized || state.bluetooth.availability == .poweredOff {
+                Label(state.bluetooth.availability == .unauthorized ? "Bluetooth not allowed — open Add Device → Bluetooth" : "Bluetooth is off",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange).padding(8).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             Button { showAdd = true } label: { Label("Add Device", systemImage: "plus.circle.fill").frame(maxWidth: .infinity) }
                 .controlSize(.large).buttonStyle(.bordered).padding(10)

@@ -93,6 +93,7 @@ public final class BluetoothService: NSObject {
     @ObservationIgnored private var lastPacket: [UUID: Date] = [:]
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
     @ObservationIgnored private var wantConnected: Set<UUID> = []
+    @ObservationIgnored private var pendingTrustedReconnect: Set<UUID> = []
     @ObservationIgnored private var pendingServices: [UUID: Int] = [:]
     @ObservationIgnored private var serviceBuffer: [UUID: [GATTServiceInfo]] = [:]
 
@@ -102,6 +103,9 @@ public final class BluetoothService: NSObject {
     }
 
     private func note(_ s: String) { log.append("\(Date().formatted(date: .omitted, time: .standard))  \(s)"); if log.count > 300 { log.removeFirst(100) } }
+
+    /// True when macOS has denied (or restricted) Bluetooth for this app build.
+    public var isDenied: Bool { availability == .unauthorized }
 
     public func startScan() {
         guard central.state == .poweredOn else { note("Cannot scan: Bluetooth is \(availability.rawValue)"); return }
@@ -121,6 +125,7 @@ public final class BluetoothService: NSObject {
 
     public func disconnect(_ id: UUID) {
         wantConnected.remove(id)
+        pendingTrustedReconnect.remove(id)
         if let p = peripherals[id] { central.cancelPeripheralConnection(p) }
     }
 
@@ -160,7 +165,8 @@ public final class BluetoothService: NSObject {
                 guard let self, let s = self.sessions[id], !s.negotiated else { return }
                 if Date().timeIntervalSince(began) > 90 {
                     self.sessionStatus[id] = "Could not negotiate an encrypted session (timed out). Some firmware requires pressing the battery's button to allow pairing."
-                    self.note("BLE negotiation timed out")
+                    self.note("BLE negotiation timed out; disconnecting so the battery can advertise again")
+                    self.disconnect(id)      // also stops auto-reconnect for this run; press Connect to retry
                     return
                 }
                 if Date().timeIntervalSince(self.lastPacket[id] ?? began) > 15 {
@@ -281,11 +287,11 @@ extension BluetoothService: CBCentralManagerDelegate, CBPeripheralDelegate {
             endSession(peripheral.identifier, status: "Disconnected")
             note("Disconnected from \(peripheral.name ?? "device")\(error.map { ": \($0.localizedDescription)" } ?? "")")
             let id = peripheral.identifier
-            if wantConnected.contains(id) || trustedIdentifiers.contains(id) {
+            if wantConnected.contains(id) {
                 // Automatic reconnect after a short delay.
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    if self.wantConnected.contains(id) || self.trustedIdentifiers.contains(id), let p = self.peripherals[id], self.central.state == .poweredOn {
+                    if self.wantConnected.contains(id), let p = self.peripherals[id], self.central.state == .poweredOn {
                         self.central.connect(p, options: nil)
                     }
                 }
