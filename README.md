@@ -42,7 +42,7 @@ implementations document — never from the model name.
 | Switch Standard ↔ Time-of-Use | ✅ ⚠️ (MQTT group `0090`, field `a2`) | ❌ no `0090` group in map | ❌ no `0090` group in map | `mqttmap.py` A1783 vs A1763/A1790P |
 | Backup reserve SOC | ✅ ⚠️ (`0090`/`a5`, range min+5…max) | ❌ | ❌ | `CMD_PPS_BACKUP_SOC_V2` |
 | Read device-reported mode/schedule | ✅ ⚠️ (telemetry field `d9`) | ❌ | ❌ | `_A1783_0421["d9"]` |
-| Bluetooth telemetry | protocol undocumented | documented (SolixBLE `b118`), **not implemented here** | documented (`b112`), **not implemented here** | SolixBLE `factory.py` |
+| Bluetooth telemetry | ❌ no documented layout | ✅ ⚠️ (SolixBLE reports it confirmed on hardware) | ✅ ⚠️ (SolixBLE: “not tested”) | `BLESession.swift`, SolixBLE `devices/c1000g2.py`, `f3800.py` |
 | Bluetooth control of TOU/mode | ❌ none exists | ❌ none exists | ❌ none exists | SolixBLE exposes switches/light/display only |
 | Local Wi-Fi API | ❌ none documented | ❌ | ❌ | only X1 has Modbus TCP |
 | Weekday/weekend or seasonal TOU | ❌ not part of PPS plan | – | – | `set_pps_use_time` (6 ranges, one daily plan) |
@@ -108,7 +108,8 @@ gives a testable core and a reproducible `build.sh`; adding a model means adding
 | Protocol research + capability matrix with sources | ✅ (this README, `ModelRegistry.sources`) |
 | App shell, sidebar, dashboard, dark mode, persistence | ✅ builds & launches (UI not visually reviewed by the author's tooling) |
 | BLE scan, identify (advert record), connect, GATT list, auto-reconnect | ✅ implemented ⚠️ untested on hardware |
-| BLE telemetry/control (encrypted session) | ❌ not implemented |
+| BLE encrypted session + live telemetry (C1000 Gen 2, F3800 Plus) | ✅ ⚠️ implemented from SolixBLE; handshake tested only against a mock battery |
+| BLE control (output switches etc.) | ❌ not implemented; no TOU/mode commands exist over BLE |
 | Local network: Bonjour + manual probe | ✅ implemented; no local protocol exists for your models |
 | Cloud login, device list, attributes, MQTT info | ✅ ⚠️ untested against the real service |
 | MQTT TLS client-cert connection | ✅ ⚠️ untested (identity is built from the PEM cert/key in a temporary keychain) |

@@ -3,6 +3,7 @@ import Foundation
 public struct TelemetryUpdate: Sendable {
     public var serial: String
     public var telemetry: BatteryTelemetry
+    public init(serial: String, telemetry: BatteryTelemetry) { self.serial = serial; self.telemetry = telemetry }
 }
 
 /// One captured MQTT frame, for the protocol-investigation view.

@@ -94,6 +94,7 @@ final class AppState {
            let saved = try? JSONDecoder().decode([SOLIXDevice].self, from: data) {
             devices = saved.map { var d = $0; d.status = .offline; d.activeTransports = []; return d }
             selection = devices.first.map { .device($0.serial) }
+            for d in devices { if let id = d.bleIdentifier { bluetooth.knownModels[id] = d.partNumber } }
         }
         if let json = try? await database.value(for: "rules"), let data = json.data(using: .utf8),
            let saved = try? JSONDecoder().decode([AutomationRule].self, from: data) { rules = saved }
@@ -105,6 +106,7 @@ final class AppState {
         Task { [weak self] in
             while !Task.isCancelled {
                 self?.syncBluetoothStatus()
+                await self?.applyBluetoothTelemetry()
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
@@ -152,12 +154,26 @@ final class AppState {
             d.status = ble.connected ? .online : .offline
             devices.append(d); serial = d.serial
         }
+        bluetooth.knownModels[ble.id] = pn
         trustBLE(ble.id, true)     // reconnect automatically on later launches
         if !ble.connected { bluetooth.connect(ble.id) }
         persistDevices()
         syncBluetoothStatus()
         selection = .device(serial)
         Task { try? await database.appendAudit(serial: serial, category: "device", message: "Added over Bluetooth (\(pn))") }
+    }
+
+    @ObservationIgnored private var lastBLEApplied: [String: Date] = [:]
+
+    /// Feed new Bluetooth readings into the same telemetry/history pipeline the cloud uses.
+    func applyBluetoothTelemetry() async {
+        for d in devices {
+            guard let id = d.bleIdentifier, let t = bluetooth.telemetry[id], t.timestamp > (lastBLEApplied[d.serial] ?? .distantPast) else { continue }
+            lastBLEApplied[d.serial] = t.timestamp
+            var merged = telemetry[d.serial] ?? BatteryTelemetry()
+            merged.merge(t)
+            await apply(TelemetryUpdate(serial: d.serial, telemetry: merged), via: .bluetooth)
+        }
     }
 
     func removeDevice(_ serial: String) {
@@ -251,11 +267,11 @@ final class AppState {
 
     // MARK: Telemetry
 
-    private func apply(_ u: TelemetryUpdate) async {
+    private func apply(_ u: TelemetryUpdate, via transport: TransportKind = .cloud) async {
         telemetry[u.serial] = u.telemetry
         if let i = devices.firstIndex(where: { $0.serial == u.serial }) {
             devices[i].status = .online
-            if !devices[i].activeTransports.contains(.cloud) { devices[i].activeTransports.append(.cloud) }
+            if !devices[i].activeTransports.contains(transport) { devices[i].activeTransports.append(transport) }
         }
         let now = Date()
         let t = u.telemetry
@@ -265,7 +281,7 @@ final class AppState {
         if now.timeIntervalSince(lastHistoryWrite[u.serial] ?? .distantPast) >= 60 {
             lastHistoryWrite[u.serial] = now
             try? await database.insertTelemetry(TelemetryRow(timestamp: now, serial: u.serial, soc: t.socPercent, inputW: t.inputPowerW,
-                                                              outputW: t.outputPowerW, mode: t.usageMode, connection: "cloud"))
+                                                              outputW: t.outputPowerW, mode: t.usageMode, connection: transport.rawValue))
         }
     }
 

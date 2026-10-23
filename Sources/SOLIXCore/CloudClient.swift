@@ -159,6 +159,26 @@ enum AnkerCrypto {
         return out.prefix(moved)
     }
 
+    /// AES-CBC with PKCS7 and an explicit IV; key may be 16/24/32 bytes (used by the BLE session: key = secret[:16], iv = secret[16:]).
+    static func aesCBC(_ input: Data, key: Data, iv: Data, encrypt: Bool) throws -> Data {
+        var out = Data(count: input.count + kCCBlockSizeAES128)
+        var moved = 0
+        let outCapacity = out.count
+        let status = out.withUnsafeMutableBytes { outPtr in
+            input.withUnsafeBytes { inPtr in
+                key.withUnsafeBytes { keyPtr in
+                    iv.withUnsafeBytes { ivPtr in
+                        CCCrypt(CCOperation(encrypt ? kCCEncrypt : kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionPKCS7Padding),
+                                keyPtr.baseAddress, key.count, ivPtr.baseAddress,
+                                inPtr.baseAddress, input.count, outPtr.baseAddress, outCapacity, &moved)
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { throw CloudError.malformedResponse("AES failed (\(status))") }
+        return out.prefix(moved)
+    }
+
     static func md5Hex(_ s: String) -> String {
         Insecure.MD5.hash(data: Data(s.utf8)).map { String(format: "%02x", $0) }.joined()
     }

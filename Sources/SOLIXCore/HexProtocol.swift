@@ -18,6 +18,8 @@ public struct HexField: Hashable, Sendable {
     public init(name: UInt8, type: UInt8?, value: Data) { self.name = name; self.type = type; self.value = value }
 
     public var nameHex: String { String(format: "%02x", name) }
+    /// Type byte (if any) followed by the value — the representation SolixBLE calls `value_legacy`.
+    public var valueLegacy: Data { (type.map { Data([$0]) } ?? Data()) + value }
 
     func encoded() -> Data {
         var d = Data([name])
@@ -201,6 +203,18 @@ public enum TelemetryDecoder {
         }
     }
 
+    /// Little-endian integer of 1...4 bytes (SolixBLE `_parse_int` semantics for flat fields).
+    static func littleEndian(_ d: Data, signed: Bool) -> Double? {
+        let b = [UInt8](d)
+        guard (1...4).contains(b.count) else { return nil }
+        var v: UInt64 = 0
+        for (i, x) in b.enumerated() { v |= UInt64(x) << (8 * UInt64(i)) }
+        if signed, b.last.map({ $0 & 0x80 != 0 }) == true {
+            return Double(Int64(bitPattern: v) - (Int64(1) << (8 * Int64(b.count))))
+        }
+        return Double(v)
+    }
+
     /// Decode a message into named values (also used by the protocol capture view).
     public static func values(partNumber: String, message: HexMessage) -> [String: Double] {
         var out: [String: Double] = [:]
@@ -211,11 +225,10 @@ public enum TelemetryDecoder {
                     if let v = read(f.value, at: s.offset, s.kind, signed: s.signed) { out[s.key] = v * s.factor }
                 }
             }
-        case ("A1790P", 0x0405), ("A1790", 0x0405):
+        case ("A1790P", 0x0405), ("A1790", 0x0405), ("A1790P", 0x0402), ("A1790", 0x0402), ("A1790P", 0x0840), ("A1790", 0x0840):
             for f in message.fields {
                 guard let m = flat0405[f.name] else { continue }
-                let kind: Kind? = f.value.count == 1 ? .ui : f.value.count == 2 ? .sile : f.value.count == 4 ? .var32 : nil
-                if let k = kind, let v = read(f.value, at: 0, k, signed: m.signed) { out[m.key] = v * m.factor }
+                if let v = littleEndian(f.value, signed: m.signed) { out[m.key] = v * m.factor }
             }
         default: break
         }
@@ -241,6 +254,11 @@ public enum TelemetryDecoder {
         if t.acInputW != nil || t.dcInputW != nil { t.inputPowerW = (t.acInputW ?? 0) + (t.dcInputW ?? 0) }
         if let c = v["bat_charge_power"], t.inputPowerW == nil { t.inputPowerW = c }
 
+        if partNumber == "A1763", let d9 = message.field(0xd9), d9.value.count >= 5 {
+            // SolixBLE c1000g2: d9[4:5] = max SOC, d9[5:6] = min SOC (type byte counted) → value offsets 3 and 4.
+            let b = [UInt8](d9.value)
+            t.maxSOC = Int(b[3]); t.minSOC = Int(b[4])
+        }
         if partNumber == "A1783", let d9 = message.field(0xd9), d9.value.count >= 6 {
             let b = [UInt8](d9.value)
             t.activeTariff = Int(b[0]); t.usageMode = Int(b[1]); t.backupSOC = Int(b[2])

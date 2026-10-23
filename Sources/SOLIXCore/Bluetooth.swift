@@ -77,8 +77,20 @@ public final class BluetoothService: NSObject {
     public private(set) var log: [String] = []
     /// Peripheral identifiers to reconnect automatically (persisted by the app).
     public var trustedIdentifiers: Set<UUID> = []
+    /// Part numbers the app already knows for peripherals (e.g. saved devices reconnected at launch, which
+    /// have no fresh advertisement to identify them).
+    public var knownModels: [UUID: String] = [:]
+
+    /// Live telemetry per Bluetooth peripheral (only for models with a documented BLE layout).
+    public private(set) var telemetry: [UUID: BatteryTelemetry] = [:]
+    /// Human-readable session state per peripheral, e.g. "Receiving live data".
+    public private(set) var sessionStatus: [UUID: String] = [:]
 
     @ObservationIgnored private var central: CBCentralManager!
+    @ObservationIgnored private var sessions: [UUID: BLESession] = [:]
+    @ObservationIgnored private var channels: [UUID: (telemetry: CBCharacteristic?, command: CBCharacteristic?)] = [:]
+    @ObservationIgnored private var sessionTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var lastPacket: [UUID: Date] = [:]
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
     @ObservationIgnored private var wantConnected: Set<UUID> = []
     @ObservationIgnored private var pendingServices: [UUID: Int] = [:]
@@ -124,6 +136,72 @@ public final class BluetoothService: NSObject {
             devices[p.identifier]?.connecting = p.state == .disconnected
             if p.state == .disconnected { central.connect(p, options: nil); note("Reconnecting to \(p.name ?? p.identifier.uuidString)") }
         }
+    }
+
+    // MARK: Encrypted session
+
+    private func startSessionIfReady(_ id: UUID) {
+        guard sessions[id] == nil, let ch = channels[id], let t = ch.telemetry, ch.command != nil,
+              let p = peripherals[id] else { return }
+        guard let pn = knownModels[id] ?? devices[id]?.modelGuess?.partNumber, BLESession.supports(partNumber: pn) else {
+            sessionStatus[id] = "Connected. No documented Bluetooth telemetry layout for this model."
+            note("No BLE telemetry layout for \(devices[id]?.name ?? "device"); GATT listing only")
+            return
+        }
+        sessions[id] = BLESession(partNumber: pn)
+        sessionStatus[id] = "Negotiating encrypted session…"
+        p.setNotifyValue(true, for: t)       // negotiation starts from didUpdateNotificationState
+        sessionTasks[id]?.cancel()
+        sessionTasks[id] = Task { @MainActor [weak self] in
+            // Re-send the initiation if the device stays silent (SolixBLE: 15 s), give up after 90 s.
+            let began = Date()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard let self, let s = self.sessions[id], !s.negotiated else { return }
+                if Date().timeIntervalSince(began) > 90 {
+                    self.sessionStatus[id] = "Could not negotiate an encrypted session (timed out). Some firmware requires pressing the battery's button to allow pairing."
+                    self.note("BLE negotiation timed out")
+                    return
+                }
+                if Date().timeIntervalSince(self.lastPacket[id] ?? began) > 15 {
+                    self.note("No reply from device; restarting negotiation")
+                    self.send(s.start(), to: id)
+                }
+            }
+        }
+    }
+
+    private func send(_ packets: [Data], to id: UUID) {
+        guard let p = peripherals[id], let c = channels[id]?.command else { return }
+        let type: CBCharacteristicWriteType = c.properties.contains(.write) ? .withResponse : .withoutResponse
+        for d in packets { p.writeValue(d, for: c, type: type) }
+    }
+
+    private func receive(_ data: Data, from id: UUID) {
+        guard let s = sessions[id] else { return }
+        lastPacket[id] = Date()
+        let out = s.handle(notification: data)
+        send(out.writes, to: id)
+        for e in out.events {
+            switch e {
+            case .negotiated:
+                sessionStatus[id] = "Encrypted session established; waiting for telemetry…"
+                note("Encrypted session established")
+                if let cmd = s.subscribeCommand() { send([cmd], to: id) }
+            case .telemetry(let t):
+                var merged = telemetry[id] ?? BatteryTelemetry()
+                merged.merge(t); telemetry[id] = merged
+                sessionStatus[id] = "Receiving live data"
+            case .ignored(let why):
+                note("BLE frame ignored: \(why)")
+            }
+        }
+    }
+
+    private func endSession(_ id: UUID, status: String) {
+        sessions[id] = nil; channels[id] = nil
+        sessionTasks[id]?.cancel(); sessionTasks[id] = nil
+        sessionStatus[id] = status
     }
 
     static func props(_ p: CBCharacteristicProperties) -> [String] {
@@ -200,6 +278,7 @@ extension BluetoothService: CBCentralManagerDelegate, CBPeripheralDelegate {
     nonisolated public func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         MainActor.assumeIsolated {
             devices[peripheral.identifier]?.connected = false
+            endSession(peripheral.identifier, status: "Disconnected")
             note("Disconnected from \(peripheral.name ?? "device")\(error.map { ": \($0.localizedDescription)" } ?? "")")
             let id = peripheral.identifier
             if wantConnected.contains(id) || trustedIdentifiers.contains(id) {
@@ -232,13 +311,37 @@ extension BluetoothService: CBCentralManagerDelegate, CBPeripheralDelegate {
             for c in chars where BLEConstants.infoCharacteristics[c.uuid.uuidString.uppercased()] != nil && c.properties.contains(.read) {
                 peripheral.readValue(for: c)
             }
-            info.characteristics = info.characteristics
+            var ch = channels[peripheral.identifier] ?? (telemetry: nil, command: nil)
+            for c in chars {
+                if c.uuid.uuidString.uppercased() == BLEUUID.telemetry { ch.telemetry = c }
+                if c.uuid.uuidString.uppercased() == BLEUUID.command { ch.command = c }
+            }
+            channels[peripheral.identifier] = ch
             serviceBuffer[peripheral.identifier, default: []].append(info)
             devices[peripheral.identifier]?.services = serviceBuffer[peripheral.identifier] ?? []
+            startSessionIfReady(peripheral.identifier)
+        }
+    }
+
+    nonisolated public func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        let uuid = characteristic.uuid.uuidString.uppercased(), on = characteristic.isNotifying
+        let msg = error?.localizedDescription
+        MainActor.assumeIsolated {
+            let id = peripheral.identifier
+            if let msg { sessionStatus[id] = "Could not subscribe to telemetry: \(msg)"; note("Notify failed: \(msg)"); return }
+            guard uuid == BLEUUID.telemetry, on, let s = sessions[id] else { return }
+            lastPacket[id] = Date()
+            send(s.start(), to: id)
         }
     }
 
     nonisolated public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        let isTelemetry = characteristic.uuid.uuidString.uppercased() == BLEUUID.telemetry
+        let bytes = characteristic.value
+        if isTelemetry {
+            if let bytes { MainActor.assumeIsolated { receive(bytes, from: peripheral.identifier) } }
+            return
+        }
         MainActor.assumeIsolated {
             guard let data = characteristic.value, let str = String(data: data, encoding: .utf8) else { return }
             let id = peripheral.identifier

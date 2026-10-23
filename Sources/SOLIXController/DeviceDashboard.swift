@@ -80,8 +80,12 @@ struct DeviceDashboard: View {
     }
 
     var waitingText: String {
+        if let id = device.bleIdentifier, let st = state.bluetooth.sessionStatus[id] {
+            let cloudHint = device.isBluetoothOnly ? " (Bluetooth cannot change TOU or modes; sign in to the Anker cloud for that.)" : ""
+            return "Bluetooth: \(st)\(cloudHint)"
+        }
         if device.isBluetoothOnly {
-            return "This device was added over Bluetooth. It is connected for identification only: live readings over Bluetooth need an encrypted session that this build does not implement yet. Sign in to the Anker cloud (Add Device → Anker Account) and the same model will receive live data via MQTT."
+            return "Waiting for the Bluetooth connection. Keep the battery powered on and in range; the connection retries automatically."
         }
         if !state.cloudSignedIn { return "Sign in to the Anker cloud (Add Device → Anker Account). Live data for \(device.partNumber) arrives over Anker's MQTT service; Bluetooth telemetry needs an encrypted session that this build does not implement yet." }
         if !state.mqttConnected { return "Signed in, but the MQTT live-data channel is not connected. See Connections & Logs." }

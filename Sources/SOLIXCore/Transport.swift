@@ -84,17 +84,17 @@ public struct CloudTransport: SOLIXTransport {
     }
 }
 
-/// BLE: discovery and GATT enumeration are implemented; the encrypted session needed for telemetry is not.
+/// BLE: encrypted-session telemetry is implemented for the models SolixBLE documents (A1763, A1790/A1790P).
+/// There are no TOU / mode / reserve commands over Bluetooth.
 public struct BluetoothTransport: SOLIXTransport {
     public let kind = TransportKind.bluetooth
-    public init() {}
-    public func isAvailable() async -> Bool { false }
+    let availability: @Sendable () async -> Bool
+    public init(availability: @escaping @Sendable () async -> Bool = { false }) { self.availability = availability }
+    public func isAvailable() async -> Bool { await availability() }
     public func unsupportedReason(for op: DeviceOperation, device: SOLIXDevice) -> String? {
         switch op {
         case .monitor:
-            return device.capabilities.supportsBluetoothMonitoring
-                ? "SolixBLE documents telemetry for this model, but the encrypted BLE session is not implemented in this build"
-                : "no BLE telemetry mapping known for this model"
+            return BLESession.supports(partNumber: device.partNumber) ? nil : "no documented Bluetooth telemetry layout for \(device.partNumber)"
         default: return "SolixBLE exposes no TOU / mode / reserve commands over Bluetooth"
         }
     }
