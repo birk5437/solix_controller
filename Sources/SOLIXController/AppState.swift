@@ -59,6 +59,7 @@ final class AppState {
     var mqttConnected = false
     var signingIn = false
     var signInError: String?
+    var regionInfo: String?
     var readOnly: Bool { didSet { UserDefaults.standard.set(readOnly, forKey: "readOnly") } }
     var pendingConfirmation: PendingConfirmation?
 
@@ -144,6 +145,15 @@ final class AppState {
     func addBluetoothDevice(_ ble: DiscoveredBLEDevice) {
         guard !isAdded(ble) else { return }
         let pn = partNumber(for: ble)
+        let mac = ble.advertisement.map { AnkerCloudClient.normalizeMAC($0.mac) }
+        if let mac, let i = devices.firstIndex(where: { $0.bluetoothMAC == mac && $0.bleIdentifier == nil && !$0.isBluetoothOnly }) {
+            devices[i].bleIdentifier = ble.id
+            bluetooth.knownModels[ble.id] = devices[i].partNumber
+            trustBLE(ble.id, true)
+            if !ble.connected { bluetooth.connect(ble.id) }
+            persistDevices(); syncBluetoothStatus(); selection = .device(devices[i].serial)
+            return
+        }
         let sameModelCloud = devices.indices.filter { devices[$0].partNumber == pn && !devices[$0].isBluetoothOnly && devices[$0].bleIdentifier == nil }
         let serial: String
         if sameModelCloud.count == 1, let i = sameModelCloud.first {
@@ -151,6 +161,7 @@ final class AppState {
         } else {
             var d = SOLIXDevice(serial: "ble-\(ble.id.uuidString)", partNumber: pn, name: ble.name, isOwner: true)
             d.bleIdentifier = ble.id
+            d.bluetoothMAC = mac
             d.status = ble.connected ? .online : .offline
             devices.append(d); serial = d.serial
         }
@@ -221,14 +232,32 @@ final class AppState {
             let found = try await backend.signIn(email: email, password: password, country: country)
             cloudSignedIn = true
             if remember { try? keychain.save(password, account: email) } else { keychain.delete(account: email) }
-            // Merge: keep user overrides, add new devices.
+            // Merge: keep user overrides, link Bluetooth-added entries to their cloud twin (by MAC, else unique model).
             for c in found {
                 if let i = devices.firstIndex(where: { $0.serial == c.serial }) {
                     devices[i].name = c.name; devices[i].firmware = c.firmware ?? devices[i].firmware
+                    devices[i].bluetoothMAC = c.bluetoothMAC ?? devices[i].bluetoothMAC
+                    continue
+                }
+                let btOnly = devices.indices.filter { devices[$0].isBluetoothOnly }
+                let byMAC = btOnly.first { c.bluetoothMAC != nil && devices[$0].bluetoothMAC == c.bluetoothMAC }
+                let byModel = btOnly.filter { devices[$0].partNumber == c.partNumber && devices[$0].bluetoothMAC == nil }
+                if let i = byMAC ?? (byModel.count == 1 ? byModel.first : nil) {
+                    let old = devices[i].serial
+                    devices[i].serial = c.serial; devices[i].partNumber = c.partNumber
+                    devices[i].name = c.name; devices[i].firmware = c.firmware
+                    devices[i].bluetoothMAC = c.bluetoothMAC ?? devices[i].bluetoothMAC
+                    if selection == .device(old) { selection = .device(c.serial) }
                 } else {
-                    devices.append(SOLIXDevice(serial: c.serial, partNumber: c.partNumber, name: c.name, isOwner: true, firmware: c.firmware))
+                    var d = SOLIXDevice(serial: c.serial, partNumber: c.partNumber, name: c.name, isOwner: true, firmware: c.firmware)
+                    d.bluetoothMAC = c.bluetoothMAC
+                    // Attach an already-added Bluetooth link with the same MAC, if any
+                    devices.append(d)
                 }
             }
+            if let note = await backend.regionNote { signInError = found.isEmpty ? note : nil; regionInfo = note }
+            else { regionInfo = nil }
+            if found.isEmpty && signInError == nil { signInError = "Signed in, but no devices were returned for this account." }
             // Only models with a verified telemetry layout are monitored over MQTT.
             let monitorable = devices.filter { ModelRegistry.profile(for: $0.partNumber) != nil && !$0.isBluetoothOnly }
             for i in devices.indices where !devices[i].isBluetoothOnly { devices[i].status = .connecting }

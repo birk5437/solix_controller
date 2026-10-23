@@ -61,6 +61,7 @@ struct AccountSignIn: View {
                 if state.signingIn { ProgressView().controlSize(.small) }
             }
             if let e = state.signInError { Label(e, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout) }
+            if let r = state.regionInfo, state.signInError == nil { Label(r, systemImage: "globe").font(.callout).foregroundStyle(.secondary) }
             if state.cloudSignedIn {
                 Label("Signed in — \(state.devices.count) device(s) found. MQTT live data: \(state.mqttConnected ? "connected" : "not connected").", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green).font(.callout)

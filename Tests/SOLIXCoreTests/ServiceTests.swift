@@ -316,3 +316,79 @@ struct MultiDeviceTests {
         #expect(devices.map { $0.capabilities.supportsTOU } == [false, true, false])
     }
 }
+
+// MARK: - Device discovery
+
+@Suite("Cloud device discovery")
+struct DiscoveryTests {
+    static func login(_ exp: Double) -> (Data, Int) {
+        json(["code": 0, "data": ["auth_token": "T", "user_id": "u", "token_expires_at": exp, "nick_name": "n"]])
+    }
+    nonisolated(unsafe) static let boundDevice: [String: Any] = [
+        "device_sn": "SNC2000AAAA1111", "product_code": "A1783", "alias_name": "Garage C2000", "device_name": "SOLIX C2000 Gen 2",
+        "bt_ble_mac": "BC:A2:AF:C7:55:F9", "device_sw_version": "v1.2.3", "wifi_online": true, "relate_type": ["ble", "wifi"],
+    ]
+
+    @Test func readsStandaloneDevicesFromBindEndpointAndMergesUserDevices() async throws {
+        let far = Date().timeIntervalSince1970 + 9999
+        let http = MockHTTP { req in
+            let path = req.url!.path
+            if path.hasSuffix("passport/login") { return Self.login(far) }
+            if path.hasSuffix("get_relate_and_bind_devices") {
+                return json(["code": 0, "data": ["data": [Self.boundDevice, ["device_sn": "SNC1000BBBB2222", "product_code": "A1763", "device_name": "SOLIX C1000 Gen 2", "alias_name": ""]]]])
+            }
+            if path.hasSuffix("list_user_devices") {
+                return json(["code": 0, "data": ["pps_list": [["device_sn": "SNF3800CCCC3333", "device_pn": "A1790P", "device_name": "F3800 Plus"],
+                                                             ["device_sn": "SNC2000AAAA1111", "device_pn": "A1783", "device_name": "dupe"]]]])
+            }
+            return json(["code": 0, "data": [:]])
+        }
+        let c = AnkerCloudClient(country: "US", http: http, minInterval: 0)
+        try await c.login(email: "a@b.c", password: "x")
+        let devs = try await c.listDevices()
+        #expect(devs.count == 3, "bind devices plus the extra one from list_user_devices, no duplicates")
+        let c2000 = try #require(devs.first { $0.partNumber == "A1783" })
+        #expect(c2000.name == "Garage C2000" && c2000.firmware == "v1.2.3" && c2000.bluetoothMAC == "BCA2AFC755F9")
+        #expect(devs.first { $0.partNumber == "A1763" }?.name == "SOLIX C1000 Gen 2", "empty alias falls back to device_name")
+        #expect(devs.contains { $0.partNumber == "A1790P" })
+    }
+
+    @Test func triesTheOtherRegionWhenTheFirstHasNoDevices() async throws {
+        let far = Date().timeIntervalSince1970 + 9999
+        let http = MockHTTP { req in
+            let path = req.url!.path
+            if path.hasSuffix("passport/login") { return Self.login(far) }
+            let isEU = req.url!.host == "ankerpower-api-eu.anker.com"
+            if path.hasSuffix("get_relate_and_bind_devices") { return json(["code": 0, "data": ["data": isEU ? [Self.boundDevice] : []]]) }
+            return json(["code": 0, "data": [:]])
+        }
+        let b = CloudBackend(http: http)
+        let devs = try await b.signIn(email: "a@b.c", password: "x", country: "US")
+        #expect(devs.map(\.partNumber) == ["A1783"])
+        #expect(await b.regionUsed == .eu)
+        #expect(await b.regionNote?.contains("EU server") == true)
+        let hosts = Set(await http.requests.compactMap { $0.url?.host })
+        #expect(hosts == ["ankerpower-api.anker.com", "ankerpower-api-eu.anker.com"])
+    }
+
+    @Test func explainsWhenNoRegionHasDevices() async throws {
+        let far = Date().timeIntervalSince1970 + 9999
+        let http = MockHTTP { req in req.url!.path.hasSuffix("passport/login") ? Self.login(far) : json(["code": 0, "data": ["data": []]]) }
+        let b = CloudBackend(http: http)
+        let devs = try await b.signIn(email: "a@b.c", password: "x", country: "US")
+        #expect(devs.isEmpty)
+        #expect(await b.regionNote?.contains("neither") == true)
+    }
+
+    @Test func doesNotProbeOtherRegionWhenDevicesAreFound() async throws {
+        let far = Date().timeIntervalSince1970 + 9999
+        let http = MockHTTP { req in
+            req.url!.path.hasSuffix("passport/login") ? Self.login(far)
+                : req.url!.path.hasSuffix("get_relate_and_bind_devices") ? json(["code": 0, "data": ["data": [Self.boundDevice]]]) : json(["code": 0, "data": [:]])
+        }
+        let b = CloudBackend(http: http)
+        _ = try await b.signIn(email: "a@b.c", password: "x", country: "US")
+        #expect(Set(await http.requests.compactMap { $0.url?.host }) == ["ankerpower-api.anker.com"])
+        #expect(await b.regionNote == nil)
+    }
+}

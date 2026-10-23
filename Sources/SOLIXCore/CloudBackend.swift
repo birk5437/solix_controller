@@ -64,11 +64,33 @@ public actor CloudBackend: TOUBackend, CloudStatusProviding {
 
     // MARK: Session
 
+    /// Which server ended up being used (the account's data may live on the other region than the country suggests).
+    public private(set) var regionUsed: AnkerRegion?
+    public private(set) var regionNote: String?
+
+    /// Signs in and lists devices. If the country's regional server reports no devices, the other server is tried,
+    /// because an account whose data lives on the other region logs in fine but sees an empty list.
     public func signIn(email: String, password: String, country: String) async throws -> [CloudDevice] {
-        let c = AnkerCloudClient(country: country, http: http, audit: log)
+        let primary = AnkerRegion.forCountry(country)
+        let c = AnkerCloudClient(country: country, region: primary, http: http, audit: log)
         try await c.login(email: email, password: password)
-        client = c
-        return try await c.listDevices()
+        let found = try await c.listDevices()
+        if !found.isEmpty {
+            client = c; regionUsed = primary; regionNote = nil
+            return found
+        }
+        // Empty: probe the other region before concluding the account has no devices.
+        let alt = AnkerCloudClient(country: country, region: primary.other, http: http, audit: log)
+        if (try? await alt.login(email: email, password: password)) != nil,
+           let altFound = try? await alt.listDevices(), !altFound.isEmpty {
+            client = alt; regionUsed = primary.other
+            regionNote = "Your devices are on the \(primary.other.label), not the \(primary.label) matching country \(country.uppercased())."
+            log("devices found on alternate region \(primary.other.label)")
+            return altFound
+        }
+        client = c; regionUsed = primary
+        regionNote = "Signed in, but neither the \(primary.label) nor the \(primary.other.label) lists any devices for this account. Devices must be added to this Anker account (as owner) in the Anker app first; a shared (member) account only sees devices shared with it."
+        return []
     }
 
     public func signOut() async {

@@ -149,6 +149,8 @@ public struct SOLIXDevice: Identifiable, Codable, Hashable, Sendable {
     public var preferredTransport: TransportKind?  // user override
     /// CoreBluetooth peripheral identifier when this device was added (or linked) over Bluetooth.
     public var bleIdentifier: UUID?
+    /// Bluetooth MAC (no separators) from the advertisement or the cloud; used to match one physical battery across both.
+    public var bluetoothMAC: String?
     /// Bluetooth-only entries have no Anker serial; they use a synthetic `ble-<uuid>` id.
     public var isBluetoothOnly: Bool { serial.hasPrefix("ble-") }
 

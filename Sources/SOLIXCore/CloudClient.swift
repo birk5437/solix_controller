@@ -74,6 +74,11 @@ public struct CloudDevice: Sendable, Hashable, Identifiable {
     public var partNumber: String
     public var name: String
     public var firmware: String?
+    /// Bluetooth MAC (no separators, upper-case) when the cloud reports it — used to link a Bluetooth peripheral.
+    public var bluetoothMAC: String?
+    public init(serial: String, partNumber: String, name: String, firmware: String? = nil, bluetoothMAC: String? = nil) {
+        self.serial = serial; self.partNumber = partNumber; self.name = name; self.firmware = firmware; self.bluetoothMAC = bluetoothMAC
+    }
 }
 
 public struct MQTTInfo: Sendable {
@@ -100,6 +105,8 @@ public enum AnkerRegion: String, Sendable {
         "RU", "ZA", "KR", "TW", "US", "CA",
     ]
     public static func forCountry(_ c: String) -> AnkerRegion { comCountries.contains(c.uppercased()) ? .com : .eu }
+    public var other: AnkerRegion { self == .com ? .eu : .com }
+    public var label: String { self == .com ? "US/Americas server" : "EU server" }
 }
 
 enum AnkerCrypto {
@@ -198,10 +205,13 @@ public actor AnkerCloudClient {
     private let audit: (@Sendable (String) -> Void)?
     private let now: @Sendable () -> Date
 
-    public init(country: String, http: HTTPTransporting = URLSessionTransport(), minInterval: TimeInterval = 0.5,
+    public nonisolated let regionUsed: AnkerRegion
+
+    public init(country: String, region: AnkerRegion? = nil, http: HTTPTransporting = URLSessionTransport(), minInterval: TimeInterval = 0.5,
                 now: @escaping @Sendable () -> Date = { Date() }, audit: (@Sendable (String) -> Void)? = nil) {
         self.country = country.uppercased()
-        self.region = .forCountry(country)
+        self.region = region ?? .forCountry(country)
+        self.regionUsed = region ?? .forCountry(country)
         self.http = http; self.minInterval = minInterval; self.now = now; self.audit = audit
     }
 
@@ -296,20 +306,41 @@ public actor AnkerCloudClient {
 
     // MARK: API calls used by the app
 
-    /// `power_service/v1/site/list_user_devices` → pps_list etc.
+    /// Every device the account can see. Primary source is `get_relate_and_bind_devices` (admin devices, including
+    /// standalone power stations that are not part of a site); `list_user_devices` is merged in as a supplement.
+    /// Only counts/key names are logged, never values.
     public func listDevices() async throws -> [CloudDevice] {
-        let data = try await post("power_service/v1/site/list_user_devices")
-        var out: [CloudDevice] = []
-        for (_, value) in data {
-            guard let list = value as? [[String: Any]] else { continue }
-            for d in list {
-                guard let sn = d["device_sn"] as? String, let pn = d["device_pn"] as? String else { continue }
-                out.append(CloudDevice(serial: sn, partNumber: pn, name: (d["device_name"] as? String) ?? pn,
-                                       firmware: (d["main_version"] as? String).flatMap { $0.isEmpty ? nil : $0 }))
+        var byKey: [String: CloudDevice] = [:]
+
+        let bound = try await post("power_service/v1/app/get_relate_and_bind_devices")
+        let boundList = (bound["data"] as? [[String: Any]]) ?? []
+        for d in boundList {
+            guard let sn = d["device_sn"] as? String, !sn.isEmpty else { continue }
+            let pn = (d["product_code"] as? String) ?? (d["device_pn"] as? String) ?? ""
+            let name = [d["alias_name"], d["device_name"]].compactMap { $0 as? String }.first { !$0.isEmpty } ?? pn
+            let fw = (d["device_sw_version"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let mac = ((d["bt_ble_mac"] as? String) ?? (d["bt_ble_id"] as? String)).map(Self.normalizeMAC)
+            byKey[sn] = CloudDevice(serial: sn, partNumber: pn, name: name, firmware: fw, bluetoothMAC: mac)
+        }
+
+        var userCounts: [String: Int] = [:]
+        if let user = try? await post("power_service/v1/site/list_user_devices") {
+            for (key, value) in user {
+                guard let list = value as? [[String: Any]] else { continue }
+                userCounts[key] = list.count
+                for d in list {
+                    guard let sn = d["device_sn"] as? String, !sn.isEmpty, byKey[sn] == nil else { continue }
+                    let pn = (d["device_pn"] as? String) ?? (d["product_code"] as? String) ?? ""
+                    byKey[sn] = CloudDevice(serial: sn, partNumber: pn, name: (d["device_name"] as? String) ?? pn,
+                                            firmware: (d["main_version"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                }
             }
         }
-        return out
+        audit?("device query on \(regionUsed.label): bound=\(boundList.count), user_devices=\(userCounts), total=\(byKey.count)")
+        return byKey.values.sorted { $0.name < $1.name }
     }
+
+    public static func normalizeMAC(_ s: String) -> String { s.uppercased().filter { $0.isHexDigit } }
 
     /// `power_service/v1/app/device/get_device_attrs`
     public func deviceAttributes(serial: String, names: [String]) async throws -> [String: String] {
