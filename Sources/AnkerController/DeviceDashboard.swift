@@ -1,6 +1,6 @@
 import SwiftUI
 import Charts
-import SOLIXCore
+import AnkerCore
 
 struct DeviceDashboard: View {
     @Environment(AppState.self) private var state

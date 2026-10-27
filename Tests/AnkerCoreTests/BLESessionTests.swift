@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import CryptoKit
-@testable import SOLIXCore
+@testable import AnkerCore
 
 /// Plays the battery's side of the SolixBLE negotiation with its own key pair. Passing proves the session logic is
 /// self-consistent and follows the documented sequence; it does NOT prove the real battery behaves identically.

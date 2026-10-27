@@ -1,9 +1,9 @@
 #!/bin/bash
-# Builds "SOLIX Controller.app" into ./dist. No Xcode project needed; uses Swift Package Manager.
+# Builds "Anker Controller.app" into ./dist. No Xcode project needed; uses Swift Package Manager.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="SOLIX Controller"
+APP_NAME="Anker Controller"
 OUT="dist"
 APP="$OUT/$APP_NAME.app"
 
@@ -23,7 +23,7 @@ echo "==> Detected macOS $DETECTED ($(uname -m)); deployment target $MIN_OS (Pac
 echo "==> Compiling (release, arm64)"
 swift build -c release --arch arm64
 BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
-BIN="$BIN_DIR/SOLIXController"
+BIN="$BIN_DIR/AnkerController"
 [ -x "$BIN" ] || { echo "error: binary not found at $BIN" >&2; exit 1; }
 
 # --- Icon -------------------------------------------------------------------
@@ -39,7 +39,7 @@ fi
 echo "==> Assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/SOLIXController"
+cp "$BIN" "$APP/Contents/MacOS/AnkerController"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 sed "s/__MIN_OS__/$MIN_OS/" Resources/Info.plist.template > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null

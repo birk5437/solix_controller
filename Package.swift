@@ -2,26 +2,26 @@
 import PackageDescription
 
 let package = Package(
-    name: "SOLIXController",
+    name: "AnkerController",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "SOLIXController", targets: ["SOLIXController"]),
+        .executable(name: "AnkerController", targets: ["AnkerController"]),
     ],
     targets: [
         .target(
-            name: "SOLIXCore",
-            path: "Sources/SOLIXCore",
+            name: "AnkerCore",
+            path: "Sources/AnkerCore",
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .executableTarget(
-            name: "SOLIXController",
-            dependencies: ["SOLIXCore"],
-            path: "Sources/SOLIXController"
+            name: "AnkerController",
+            dependencies: ["AnkerCore"],
+            path: "Sources/AnkerController"
         ),
         .testTarget(
-            name: "SOLIXCoreTests",
-            dependencies: ["SOLIXCore"],
-            path: "Tests/SOLIXCoreTests"
+            name: "AnkerCoreTests",
+            dependencies: ["AnkerCore"],
+            path: "Tests/AnkerCoreTests"
         ),
     ]
 )

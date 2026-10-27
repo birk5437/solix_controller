@@ -1,5 +1,5 @@
 import SwiftUI
-import SOLIXCore
+import AnkerCore
 
 struct DeviceSettingsView: View {
     @Environment(AppState.self) private var state

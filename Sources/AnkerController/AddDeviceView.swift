@@ -1,5 +1,5 @@
 import SwiftUI
-import SOLIXCore
+import AnkerCore
 
 struct AddDeviceView: View {
     @Environment(AppState.self) private var state
@@ -87,7 +87,7 @@ struct BluetoothDiscovery: View {
             if bt.availability == .unauthorized {
                 VStack(alignment: .leading, spacing: 6) {
                     Label("macOS has not allowed Bluetooth for this copy of the app.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Text("Because this app is only ad-hoc signed, macOS can treat every rebuild as a new app and forget the permission. Enable “SOLIX Controller” under Privacy & Security → Bluetooth. If it is not listed or toggling does not help, quit the app and run  tccutil reset Bluetooth com.solixcontroller.app  in Terminal, then relaunch and click Allow.")
+                    Text("Because this app is only ad-hoc signed, macOS can treat every rebuild as a new app and forget the permission. Enable “Anker Controller” under Privacy & Security → Bluetooth. If it is not listed or toggling does not help, quit the app and run  tccutil reset Bluetooth com.ankercontroller.app  in Terminal, then relaunch and click Allow.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button("Open Bluetooth Privacy Settings") {
                         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Bluetooth")!)
@@ -100,7 +100,7 @@ struct BluetoothDiscovery: View {
                 .font(.caption).foregroundStyle(.secondary)
             if bt.devices.isEmpty {
                 Text(bt.isScanning ? "Scanning… make sure the battery is powered on and its Bluetooth is enabled." : "No Anker devices found yet.").foregroundStyle(.secondary)
-                Text("A battery that already has a Bluetooth connection (the Anker phone app, or another copy of this app) stops advertising and will not appear. Close the Anker app on your phone and quit any other copy of SOLIX Controller, then scan again.")
+                Text("A battery that already has a Bluetooth connection (the Anker phone app, or another copy of this app) stops advertising and will not appear. Close the Anker app on your phone and quit any other copy of Anker Controller, then scan again.")
                     .font(.caption).foregroundStyle(.tertiary)
             }
             ForEach(bt.devices.values.sorted { $0.rssi > $1.rssi }) { d in

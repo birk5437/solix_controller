@@ -1,12 +1,12 @@
 import SwiftUI
-import SOLIXCore
+import AnkerCore
 
 @main
-struct SOLIXControllerApp: App {
+struct AnkerControllerApp: App {
     @State private var state = AppState()
 
     var body: some Scene {
-        WindowGroup("SOLIX Controller") {
+        WindowGroup("Anker Controller") {
             MainWindow()
                 .environment(state)
                 .frame(minWidth: 1020, minHeight: 680)

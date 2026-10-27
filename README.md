@@ -1,4 +1,4 @@
-# SOLIX Controller
+# Anker Controller
 
 Native macOS (SwiftUI, Swift 6) app to monitor Anker SOLIX portable power stations and manage their
 **Time-of-Use (TOU)** mode. No Python, no server, no browser UI, no Homebrew dependencies.
@@ -11,8 +11,8 @@ Native macOS (SwiftUI, Swift 6) app to monitor Anker SOLIX portable power statio
 ## Build & run
 
 ```sh
-./build.sh                       # → dist/SOLIX Controller.app
-open "dist/SOLIX Controller.app"
+./build.sh                       # → dist/Anker Controller.app
+open "dist/Anker Controller.app"
 swift test                       # unit tests
 ```
 
@@ -22,7 +22,7 @@ release mode, assembles the bundle, and **ad-hoc signs** it.
 
 **Signing / Gatekeeper:** the app is *ad-hoc signed only*. It is **not** Developer-ID signed and **not notarized**.
 Built on your own Mac it opens from Finder normally. If you copy it to another Mac (AirDrop/download), Gatekeeper will
-block it; right-click → Open, or run `xattr -dr com.apple.quarantine "SOLIX Controller.app"`. Distribution without
+block it; right-click → Open, or run `xattr -dr com.apple.quarantine "Anker Controller.app"`. Distribution without
 warnings needs an Apple Developer ID certificate + notarization, which this project does not have.
 
 First launch asks for **Bluetooth** permission (device discovery). **Local Network** permission is requested only if
@@ -31,7 +31,7 @@ supported build path; `open Package.swift` opens it in Xcode if you want to debu
 
 ## Your devices — what is and isn't supported
 
-Capabilities come from `ModelRegistry` (`Sources/SOLIXCore/DeviceModels.swift`), derived only from what the reference
+Capabilities come from `ModelRegistry` (`Sources/AnkerCore/DeviceModels.swift`), derived only from what the reference
 implementations document — never from the model name.
 
 | Capability | C2000 Gen 2 (A1783) | C1000 Gen 2 (A1763) | F3800 Plus (A1790P) | Source |
@@ -82,7 +82,7 @@ transports applies to reads only (`TransportManager`).
 
 ```
 Sources/
-  SOLIXCore/            # UI-free library (all tested)
+  AnkerCore/            # UI-free library (all tested)
     DeviceModels.swift  # ModelRegistry (verified capabilities + sources), SOLIXDevice, BatteryTelemetry
     TOUPlan.swift       # plan model, validation, cloud-JSON + MQTT-binary serialization, editing helpers
     HexProtocol.swift   # Anker frame codec (XOR checksum), command builders, telemetry decoders
@@ -95,8 +95,8 @@ Sources/
     LocalNetwork.swift  # Bonjour browse + TCP reachability probe
     Automation.swift    # DST-safe rules, validation, conflict detection, scheduler
     Storage.swift       # SQLite (telemetry, audit, snapshots, kv), Keychain, redaction
-  SOLIXController/      # SwiftUI app: AppState + views
-Tests/SOLIXCoreTests/   # 43 tests
+  AnkerController/      # SwiftUI app: AppState + views
+Tests/AnkerCoreTests/   # 43 tests
 ```
 This deviates from the suggested layout (Models/Services/… folders, `.xcodeproj`) because a SwiftPM library + app target
 gives a testable core and a reproducible `build.sh`; adding a model means adding a `ModelProfile` and a decoder entry.

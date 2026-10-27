@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SOLIXCore
+@testable import AnkerCore
 
 // MARK: - Mocks
 

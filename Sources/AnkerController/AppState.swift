@@ -1,6 +1,6 @@
 import SwiftUI
 import Observation
-import SOLIXCore
+import AnkerCore
 import AppKit
 
 struct PendingConfirmation: Identifiable {
@@ -428,7 +428,7 @@ final class AppState {
         let serials = devices.map(\.serial)
         var out: [String] = []
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
-        out.append("SOLIX Controller \(v) — diagnostic export \(ISO8601DateFormatter().string(from: Date()))")
+        out.append("Anker Controller \(v) — diagnostic export \(ISO8601DateFormatter().string(from: Date()))")
         out.append("macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         out.append("Read-only mode: \(readOnly)  |  Cloud: \(cloudSignedIn ? "signed in" : "signed out")  |  MQTT: \(mqttConnected ? "connected" : "disconnected")  |  Bluetooth: \(bluetooth.availability.rawValue)")
         out.append("")

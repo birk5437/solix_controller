@@ -1,6 +1,6 @@
 # Third-party notices
 
-SOLIX Controller's protocol layer is a clean-room Swift port of *protocol facts* (endpoints, field layouts, constants)
+Anker Controller's protocol layer is a clean-room Swift port of *protocol facts* (endpoints, field layouts, constants)
 documented in the following MIT-licensed projects. No Python code is bundled or executed.
 
 | Project | Used for | License |

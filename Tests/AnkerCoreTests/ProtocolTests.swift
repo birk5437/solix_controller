@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import SOLIXCore
+@testable import AnkerCore
 
 @Suite("Wire protocol")
 struct ProtocolTests {
@@ -248,14 +248,14 @@ struct StorageTests {
     /// The real Keychain needs a writable login keychain, which headless/sandboxed shells (CI, agents) don't have.
     /// In that case the test is *skipped*, never reported as passed.
     static let keychainAvailable: Bool = {
-        let kc = KeychainManager(service: "com.solixcontroller.tests.probe.\(UUID().uuidString)")
+        let kc = KeychainManager(service: "com.ankercontroller.tests.probe.\(UUID().uuidString)")
         defer { kc.delete(account: "probe") }
         return (try? kc.save("x", account: "probe")) != nil
     }()
 
     @Test(.enabled(if: StorageTests.keychainAvailable, "no writable login keychain in this session"))
     func keychainSaveLoadDelete() throws {
-        let kc = KeychainManager(service: "com.solixcontroller.tests.\(UUID().uuidString)")
+        let kc = KeychainManager(service: "com.ankercontroller.tests.\(UUID().uuidString)")
         defer { kc.delete(account: "a") }
         try kc.save("pw1", account: "a")
         #expect(kc.load(account: "a") == "pw1")

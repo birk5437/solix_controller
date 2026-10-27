@@ -1,5 +1,5 @@
 import SwiftUI
-import SOLIXCore
+import AnkerCore
 
 extension Tariff {
     var color: Color { switch self { case .peak: .orange; case .mid: .gray; case .offPeak: .green } }

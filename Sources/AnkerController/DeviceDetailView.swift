@@ -1,5 +1,5 @@
 import SwiftUI
-import SOLIXCore
+import AnkerCore
 
 enum DeviceTab: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard", mode = "Operating Mode", tou = "TOU Schedule", settings = "Settings", history = "History", diagnostics = "Diagnostics"

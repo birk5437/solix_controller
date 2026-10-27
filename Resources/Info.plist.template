@@ -2,10 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>SOLIX Controller</string>
-    <key>CFBundleDisplayName</key><string>SOLIX Controller</string>
-    <key>CFBundleIdentifier</key><string>com.solixcontroller.app</string>
-    <key>CFBundleExecutable</key><string>SOLIXController</string>
+    <key>CFBundleName</key><string>Anker Controller</string>
+    <key>CFBundleDisplayName</key><string>Anker Controller</string>
+    <key>CFBundleIdentifier</key><string>com.ankercontroller.app</string>
+    <key>CFBundleExecutable</key><string>AnkerController</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundleVersion</key><string>1</string>
@@ -15,9 +15,9 @@
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>SOLIX Controller uses Bluetooth to find and identify nearby Anker SOLIX batteries.</string>
+    <string>Anker Controller uses Bluetooth to find and identify nearby Anker SOLIX batteries.</string>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>SOLIX Controller looks for Anker SOLIX devices on your local network and tests addresses you enter.</string>
+    <string>Anker Controller looks for Anker SOLIX devices on your local network and tests addresses you enter.</string>
     <key>NSBonjourServices</key>
     <array><string>_http._tcp</string><string>_modbus._tcp</string></array>
 </dict>
