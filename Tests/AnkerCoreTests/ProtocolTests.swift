@@ -331,3 +331,32 @@ struct PlanEditingTests {
         #expect(p.slots.count == 1, "the last remaining slot cannot be removed")
     }
 }
+
+@Suite("Full SOLIX catalog")
+struct CatalogTests {
+    @Test func everyListedModelIsReadOnly() {
+        #expect(ModelRegistry.catalog.count > 60)
+        for p in ModelRegistry.catalog {
+            #expect(!p.capabilities.supportsTOU && p.settableUsageModes.isEmpty && !p.supportsBatteryOnlyControl, "\(p.partNumber)")
+            #expect(!p.telemetryDocumented, "\(p.partNumber) has no implemented layout")
+        }
+        #expect(Set(ModelRegistry.catalog.map(\.partNumber)).count == ModelRegistry.catalog.count, "duplicate part numbers")
+    }
+
+    @Test func unknownPartNumbersStillResolve() {
+        let d = SOLIXDevice(serial: "S", partNumber: "A9999", name: "Mystery", isOwner: true)
+        #expect(d.profile?.partNumber == "A9999" && d.profile?.category == .other)
+        let cloud = CloudTransport(backend: CloudBackend())
+        #expect(cloud.unsupportedReason(for: .monitor, device: d) != nil)
+        #expect(cloud.unsupportedReason(for: .setUsageMode, device: d) != nil)
+    }
+
+    @Test func catalogModelsAreNamedAndSized() {
+        #expect(ModelRegistry.profile(for: "A1722")?.marketingName == "SOLIX C300")
+        #expect(ModelRegistry.profile(for: "A17C5")?.category == .solarbank)
+        #expect(ModelRegistry.profile(bleProductType: "b103")?.partNumber == "A1753")
+        #expect(ModelRegistry.profile(for: "A1790")?.telemetryDocumented == true)
+        #expect(ModelRegistry.profile(for: "A1765")?.capabilities.supportsBluetoothMonitoring == true)
+        #expect(BLESession.supports(partNumber: "A1765") && !BLESession.supports(partNumber: "A1722"))
+    }
+}

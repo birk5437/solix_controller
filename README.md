@@ -47,6 +47,17 @@ implementations document — never from the model name.
 | Local Wi-Fi API | ❌ none documented | ❌ | ❌ | only X1 has Modbus TCP |
 | Weekday/weekend or seasonal TOU | ❌ not part of PPS plan | – | – | `set_pps_use_time` (6 ranges, one daily plan) |
 
+### Every other SOLIX model
+
+The app recognises **every model listed by the reference projects** (`ModelRegistry.catalog`: C-, F-, S-series and
+PowerHouse stations, Solarbanks, Everfrost/Powered coolers, expansion batteries, power banks, X1/E10 home systems,
+inverters, meters, plugs, chargers, generator) and any unknown Anker part number. They appear in the device list with the
+right name, category and capacity, are subscribed on MQTT so **Protocol Capture** works, and are strictly read-only:
+no telemetry layout or command is documented for them, so nothing is decoded or sent. Additionally documented:
+A1790 (F3800) shares the F3800 Plus layout, A1765 (C1000X Gen 2) shares the C1000 Gen 2 BLE/MQTT layout (⚠️ unverified).
+Adding full support for another model means adding its layout from a capture to `TelemetryDecoder` and flipping its
+profile to `pps(...)`.
+
 **What this means for your goal.** For the **C2000 Gen 2** the full TOU path (plan → mode switch → device read-back) is
 implemented. For the **C1000 Gen 2** and **F3800 Plus** the reference projects contain *no* mode-switch or TOU command,
 so the app refuses to send anything (it will not guess protocol bytes). If TOU "won't turn on" for those two in the
