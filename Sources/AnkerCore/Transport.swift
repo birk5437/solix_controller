@@ -74,9 +74,9 @@ public struct CloudTransport: SOLIXTransport {
     public func isAvailable() async -> Bool { await backend.cloudSignedIn }
 
     public func unsupportedReason(for op: DeviceOperation, device: SOLIXDevice) -> String? {
-        guard let p = device.profile else { return "unknown model \(device.partNumber)" }
+        let p = ModelRegistry.resolve(partNumber: device.partNumber)
         switch op {
-        case .monitor: return nil  // MQTT telemetry layouts are defined for A1763, A1783, A1790P
+        case .monitor: return p.telemetryDocumented ? nil : "no documented telemetry layout for \(p.marketingName) (\(device.partNumber))"
         case .readTOUPlan: return nil  // read-only attribute query
         case .writeTOUPlan, .setUsageMode, .setBackupSOC:
             return p.capabilities.supportsTOU ? nil : p.touNote

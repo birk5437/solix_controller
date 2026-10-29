@@ -106,18 +106,18 @@ public final class BLESession {
     }
 
     /// Models whose BLE telemetry layout is documented by SolixBLE (A1763 confirmed on hardware there, F3800 "not tested").
-    public static func supports(partNumber: String) -> Bool { ["A1763", "A1790P", "A1790"].contains(partNumber) }
+    public static func supports(partNumber: String) -> Bool { ["A1763", "A1765", "A1790P", "A1790"].contains(partNumber) }
 
     /// Message types carrying telemetry (SolixBLE `_TELEMETRY_COMMANDS` plus the generic 0x300).
     var telemetryMsgTypes: Set<UInt16> {
         switch partNumber {
-        case "A1763": [0x421, 0x900, 0x300]
+        case "A1763", "A1765": [0x421, 0x900, 0x300]
         default: [0x840, 0x402, 0x300, 0x405]
         }
     }
 
     /// Canonical message type used to reuse the MQTT telemetry layouts (they are identical for these models).
-    var canonicalType: UInt16 { partNumber == "A1763" ? 0x0421 : 0x0405 }
+    var canonicalType: UInt16 { ["A1763", "A1765"].contains(partNumber) ? 0x0421 : 0x0405 }
 
     // MARK: Start / commands
 
