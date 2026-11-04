@@ -229,7 +229,7 @@ public enum TelemetryDecoder {
     public static func values(partNumber: String, message: HexMessage) -> [String: Double] {
         var out: [String: Double] = [:]
         switch (partNumber, message.msgType) {
-        case ("A1763", 0x0421), ("A1783", 0x0421):
+        case ("A1763", 0x0421), ("A1765", 0x0421), ("A1783", 0x0421):
             for f in message.fields {
                 for s in layout0421[f.name] ?? [] {
                     if let v = read(f.value, at: s.offset, s.kind, signed: s.signed) { out[s.key] = v * s.factor }
@@ -268,7 +268,7 @@ public enum TelemetryDecoder {
             // a4[0x31] bits 0x0C = battery_only_switch (mqttmap.py): non-zero ⇒ AC input disabled; TOU does not run.
             t.batteryOnlySwitch = (a4.value[a4.value.startIndex + 0x31] & 0x0C) != 0 ? 1 : 0
         }
-        if partNumber == "A1763", let d9 = message.field(0xd9), d9.value.count >= 5 {
+        if ["A1763", "A1765"].contains(partNumber), let d9 = message.field(0xd9), d9.value.count >= 5 {
             // SolixBLE c1000g2: d9[4:5] = max SOC, d9[5:6] = min SOC (type byte counted) → value offsets 3 and 4.
             let b = [UInt8](d9.value)
             t.maxSOC = Int(b[3]); t.minSOC = Int(b[4])

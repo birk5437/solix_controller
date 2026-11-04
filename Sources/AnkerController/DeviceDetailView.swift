@@ -46,7 +46,7 @@ struct DeviceDetailView: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(d.name).font(.title.weight(.semibold))
-                Text("\(d.profile?.marketingName ?? d.partNumber) · \(d.partNumber)").foregroundStyle(.secondary)
+                Text("\(d.profile?.marketingName ?? d.partNumber) · \(d.profile?.category.label ?? "") · \(d.partNumber)").foregroundStyle(.secondary)
             }
             Spacer()
             Label(d.status == .online ? "Online" : d.status == .connecting ? "Connecting" : d.status == .offline ? "Offline" : "No live data",

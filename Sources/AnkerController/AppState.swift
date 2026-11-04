@@ -258,26 +258,25 @@ final class AppState {
             if let note = await backend.regionNote { signInError = found.isEmpty ? note : nil; regionInfo = note }
             else { regionInfo = nil }
             if found.isEmpty && signInError == nil { signInError = "Signed in, but no devices were returned for this account." }
-            // Only models with a verified telemetry layout are monitored over MQTT.
-            let monitorable = devices.filter { ModelRegistry.profile(for: $0.partNumber) != nil && !$0.isBluetoothOnly }
+            // Every cloud device is subscribed so Protocol Capture works; values are only decoded for documented layouts.
+            let monitorable = devices.filter { !$0.isBluetoothOnly }
             for i in devices.indices where !devices[i].isBluetoothOnly { devices[i].status = .connecting }
             persistDevices()
             if selection == nil, let f = devices.first { selection = .device(f.serial) }
             do {
                 try await backend.startMonitoring(monitorable)
                 mqttConnected = true
-                for i in devices.indices where ModelRegistry.profile(for: devices[i].partNumber) != nil && !devices[i].isBluetoothOnly {
+                for i in devices.indices where !devices[i].isBluetoothOnly {
                     devices[i].status = .online
                     if !devices[i].activeTransports.contains(.cloud) { devices[i].activeTransports.append(.cloud) }
                 }
-                for i in devices.indices where ModelRegistry.profile(for: devices[i].partNumber) == nil && !devices[i].isBluetoothOnly { devices[i].status = .unknown }
             } catch {
                 mqttConnected = false
                 for i in devices.indices where !devices[i].isBluetoothOnly { devices[i].status = .offline }
                 signInError = "Signed in, but the live-data channel (MQTT) failed: \(error)"
             }
             persistDevices()
-            for d in monitorable { await loadStoredPlan(d.serial) }
+            for d in monitorable where d.profile?.telemetryDocumented == true { await loadStoredPlan(d.serial) }
         } catch {
             cloudSignedIn = false
             signInError = "\(error)"
@@ -324,7 +323,7 @@ final class AppState {
     // MARK: TOU
 
     func loadStoredPlan(_ serial: String) async {
-        guard let d = device(serial), d.profile != nil else { return }
+        guard let d = device(serial), d.profile?.telemetryDocumented == true else { return }
         do {
             let plan = try await backend.fetchCloudPlan(serial: serial)
             storedPlans[serial] = plan

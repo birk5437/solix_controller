@@ -175,11 +175,7 @@ struct Timeline: View {
             let w = geo.size.width
             ZStack(alignment: .topLeading) {
                 ForEach(Array(plan.orderedSlots.enumerated()), id: \.offset) { _, s in
-                    RoundedRectangle(cornerRadius: 4).fill(s.tariff.color.opacity(0.75))
-                        .overlay(HStack(spacing: 4) { Image(systemName: s.tariff.symbol); if (s.endHour - s.startHour) >= 3 { Text(s.tariff.short) } }
-                            .font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1))
-                        .frame(width: max(w * CGFloat(s.endHour - s.startHour) / 24 - 2, 2), height: 34)
-                        .offset(x: w * CGFloat(s.startHour) / 24)
+                    slotView(s, width: w)
                 }
                 ForEach([0, 6, 12, 18, 24], id: \.self) { h in
                     Text(String(format: "%02d", h)).font(.caption2).foregroundStyle(.secondary)
@@ -189,5 +185,22 @@ struct Timeline: View {
             }
         }
         .accessibilityLabel("24-hour tariff schedule")
+    }
+
+    @ViewBuilder
+    private func slotView(_ s: TOUSlot, width w: CGFloat) -> some View {
+        let hours: Int = s.endHour - s.startHour
+        let slotWidth: CGFloat = max(w * CGFloat(hours) / 24 - 2, 2)
+        let xOffset: CGFloat = w * CGFloat(s.startHour) / 24
+        RoundedRectangle(cornerRadius: 4).fill(s.tariff.color.opacity(0.75))
+            .overlay(
+                HStack(spacing: 4) {
+                    Image(systemName: s.tariff.symbol)
+                    if hours >= 3 { Text(s.tariff.short) }
+                }
+                .font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+            )
+            .frame(width: slotWidth, height: 34)
+            .offset(x: xOffset)
     }
 }

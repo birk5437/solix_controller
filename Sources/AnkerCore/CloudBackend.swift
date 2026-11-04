@@ -116,7 +116,7 @@ public actor CloudBackend: TOUBackend, CloudStatusProviding {
         trigger?.cancel()
         trigger = Task { [weak self] in
             while !Task.isCancelled {
-                for d in list { try? await self?.requestTelemetry(d) }
+                for d in list where ModelRegistry.resolve(partNumber: d.partNumber).telemetryDocumented { try? await self?.requestTelemetry(d) }
                 try? await Task.sleep(nanoseconds: 50_000_000_000)
             }
         }
