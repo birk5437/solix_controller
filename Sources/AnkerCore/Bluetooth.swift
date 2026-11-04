@@ -250,8 +250,9 @@ extension BluetoothService: CBCentralManagerDelegate, CBPeripheralDelegate {
                UInt16(m[m.startIndex]) | UInt16(m[m.startIndex + 1]) << 8 == BLEConstants.ankerCompanyID {
                 ad = AnkerAdvertisement.parse(Data(m.dropFirst(2)))
             }
+            // Only a parsed Anker manufacturer record or a known SOLIX service UUID qualifies. A matching local name alone
+            // does not: other Anker products (e.g. "AnkerAdv") advertise similar names but cannot be used here.
             let looksAnker = ad != nil || uuids.contains(where: { BLEConstants.identifiers.contains($0.uppercased()) })
-                || name.localizedCaseInsensitiveContains("solix") || name.localizedCaseInsensitiveContains("anker")
             guard looksAnker else { return }
             peripherals[peripheral.identifier] = peripheral
             var d = devices[peripheral.identifier] ?? DiscoveredBLEDevice(
